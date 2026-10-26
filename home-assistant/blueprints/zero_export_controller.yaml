@@ -1,0 +1,168 @@
+blueprint:
+  name: Zero-Export Inverter Controller (OpenDTU / Hoymiles)
+  description: >
+    Drives a microinverter's non-persistent power limit to follow a target
+    sensor without exporting. Cuts fast on export, and raises slowly only after
+    the target has stayed above the limit for 20 s. It acts only once grid
+    readings have settled after its last change, and caps each raise at +400 W.
+    Controller only: you supply the target sensor (house load minus a buffer,
+    plus your own battery/time rules) and two helpers. The full system with
+    forecasting is in the repo's package.
+    https://github.com/jakeshake/zerospill
+  domain: automation
+  input:
+    target_sensor:
+      name: Target power sensor (W)
+      description: What the inverter should deliver right now. Unavailable for 5 min turns the inverter off; below 40 W turns it off.
+      selector:
+        entity:
+          domain: sensor
+    grid_sensor:
+      name: Grid power sensor (W, + import / - export)
+      selector:
+        entity:
+          domain: sensor
+    grid_median_sensor:
+      name: Grid power median (3 readings)
+      description: A filter-platform median of the grid sensor.
+      selector:
+        entity:
+          domain: sensor
+    inverter_power:
+      name: Inverter AC power sensor
+      selector:
+        entity:
+          domain: sensor
+    inverter_limit:
+      name: Inverter non-persistent absolute limit
+      selector:
+        entity:
+          domain: number
+    inverter_producing:
+      name: Inverter producing
+      selector:
+        entity:
+          domain: binary_sensor
+    inverter_on:
+      name: Inverter turn-on button
+      selector:
+        entity:
+          domain: button
+    inverter_off:
+      name: Inverter turn-off button
+      selector:
+        entity:
+          domain: button
+    correction:
+      name: Limit correction (input_number, ~1.0)
+      selector:
+        entity:
+          domain: input_number
+    peak_power:
+      name: Max power (input_number, W)
+      description: Hard ceiling. Size it to your DC fuse/breaker/wire (80 % rule).
+      selector:
+        entity:
+          domain: input_number
+    raise_pending:
+      name: Raise-pending flag (input_boolean)
+      selector:
+        entity:
+          domain: input_boolean
+
+mode: single
+max_exceeded: silent
+
+variables:
+  t_ent: !input target_sensor
+  g_ent: !input grid_sensor
+  gm_ent: !input grid_median_sensor
+  p_ent: !input inverter_power
+  l_ent: !input inverter_limit
+  prod_ent: !input inverter_producing
+  on_ent: !input inverter_on
+  off_ent: !input inverter_off
+  corr_ent: !input correction
+  pmax_ent: !input peak_power
+  rp_ent: !input raise_pending
+
+triggers:
+  - trigger: time_pattern
+    seconds: "/20"
+  - trigger: state
+    entity_id: !input target_sensor
+  - trigger: state
+    entity_id: !input grid_sensor
+
+actions:
+  - condition: template
+    value_template: >
+      {% set A = states[p_ent] %}
+      {{ not (A is not none and A.state in ['unknown','unavailable'] and (now() - A.last_changed).total_seconds() < 600) }}
+  - variables:
+      tstate: "{{ states(t_ent) }}"
+      target: "{{ states(t_ent) | float(0) }}"
+      corr: "{{ states(corr_ent) | float(1.0) }}"
+      pmax: "{{ states(pmax_ent) | float(1000) }}"
+      cmd: "{{ (([[target * corr, 30] | max, pmax] | min) | round(0) | int) }}"
+      cur: "{{ states(l_ent) | float(0) | round(0) | int }}"
+      since: "{{ (now() - states[l_ent].last_changed).total_seconds() }}"
+      stale_for: "{{ (now() - states[t_ent].last_changed).total_seconds() }}"
+      producing: "{{ is_state(prod_ent, 'on') }}"
+      off_age: "{{ (now() - (states(off_ent) | as_datetime(none) or (now() - timedelta(hours=1)))).total_seconds() }}"
+      on_age: "{{ (now() - (states(on_ent) | as_datetime(none) or (now() - timedelta(hours=1)))).total_seconds() }}"
+      exporting: "{{ states(gm_ent) | float(0) < 0 or states(g_ent) | float(0) < 0 }}"
+      settled: >
+        {% set L = states[l_ent] %}{% set G = states[g_ent] %}
+        {% if L is none or G is none %}true{% else %}
+        {{ (now() - L.last_changed).total_seconds() >= 12 and (G.last_reported - L.last_changed).total_seconds() > 11 }}{% endif %}
+      hard_export: >
+        {% set L = states[l_ent] %}{% set G = states[g_ent] %}
+        {{ G is not none and (G.state | float(0)) < -150 and (L is none or (G.last_reported - L.last_changed).total_seconds() > 4) }}
+  - variables:
+      cmd: "{{ [cmd, cur + 400] | min if cmd > cur else cmd }}"
+  - variables:
+      want_up: "{{ (cmd - cur) >= ([15, 0.04 * cmd] | max) }}"
+  - if: "{{ want_up and is_state(rp_ent, 'off') }}"
+    then:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: "{{ rp_ent }}"
+    else:
+      - if: "{{ not want_up and is_state(rp_ent, 'on') }}"
+        then:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: "{{ rp_ent }}"
+  - choose:
+      - conditions: "{{ tstate in ['unavailable','unknown'] }}"
+        sequence:
+          - if: "{{ stale_for > 300 and producing and off_age > 60 }}"
+            then:
+              - action: button.press
+                target:
+                  entity_id: "{{ off_ent }}"
+      - conditions: "{{ target < 40 and settled }}"
+        sequence:
+          - if: "{{ producing and off_age > 60 }}"
+            then:
+              - action: button.press
+                target:
+                  entity_id: "{{ off_ent }}"
+    default:
+      - if: "{{ not producing and on_age > 60 }}"
+        then:
+          - action: button.press
+            target:
+              entity_id: "{{ on_ent }}"
+      - if: >
+          {{ (cur - cmd >= [8, 0.03 * cmd] | max and (hard_export or (settled and (since >= 15 or exporting))))
+             or (cmd - cur >= [15, 0.04 * cmd] | max and settled and since >= 30
+                 and is_state(rp_ent, 'on')
+                 and (now() - states[rp_ent].last_changed).total_seconds() >= 20) }}
+        then:
+          - action: number.set_value
+            target:
+              entity_id: "{{ l_ent }}"
+            data:
+              value: "{{ cmd }}"

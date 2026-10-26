@@ -1,0 +1,714 @@
+# =============================================================================
+# Battery-buffered zero-export solar: Home Assistant package
+# https://github.com/jakeshake/zerospill
+#
+# BEFORE YOU INSTALL: search/replace these placeholder entity IDs with yours.
+#
+#   sensor.grid_power            Grid power in W: + = importing, - = exporting
+#                                (e.g. Emporia Vue Utility "..._watts")
+#   sensor.inverter_ac_power     Inverter AC output (W), from OpenDTU-OnBattery
+#   number.inverter_limit        Inverter NON-PERSISTENT absolute limit (W)
+#                                (never use the persistent limit: it wears flash)
+#   binary_sensor.inverter_producing
+#   binary_sensor.inverter_reachable
+#   button.inverter_turn_on
+#   button.inverter_turn_off
+#   sensor.battery_soc           Battery state of charge (%)
+#   sensor.battery_voltage       Battery voltage (V)
+#   switch.battery_charge_switch BMS charge MOSFET switch (optional automation)
+#   sensor.solcast_pv_forecast_forecast_today / _tomorrow   (Solcast integration)
+#   notify.notify                Replace with your phone, e.g. notify.mobile_app_xxx
+#
+# Defaults assume a 16S LiFePO4 (~5 kWh) pack, a 1200 W inverter, and a 5-8 pm
+# peak window. Tune everything from the helpers below; no code edits needed.
+# =============================================================================
+
+input_number:
+  solar_battery_capacity_wh:
+    name: Solar Battery Capacity
+    min: 500
+    max: 30000
+    step: 10
+    unit_of_measurement: Wh
+  solar_battery_min_voltage:
+    name: Solar Battery Min Voltage
+    min: 40
+    max: 52
+    step: 0.1
+    unit_of_measurement: V
+  solar_peak_power_w:
+    name: Solar Peak Power
+    min: 100
+    max: 1200
+    step: 10
+    unit_of_measurement: W
+  solar_peak_start_hour:
+    name: Solar Peak Start Hour
+    min: 0
+    max: 23
+    step: 1
+  solar_peak_end_hour:
+    name: Solar Peak End Hour
+    min: 1
+    max: 24
+    step: 1
+  solar_base_load_w:
+    name: Solar Base Load (fallback)
+    min: 0
+    max: 400
+    step: 5
+    unit_of_measurement: W
+  solar_export_buffer:
+    name: Solar Export Buffer
+    min: 0
+    max: 200
+    step: 5
+    unit_of_measurement: W
+  solar_soc_floor:
+    name: Solar SoC Floor
+    min: 3
+    max: 30
+    step: 1
+    unit_of_measurement: "%"
+  solar_overnight_hold_soc:
+    name: Solar Overnight Hold SoC
+    min: 3
+    max: 80
+    step: 1
+    unit_of_measurement: "%"
+  solar_cloudy_reserve_soc:
+    name: Solar Cloudy Reserve SoC
+    min: 5
+    max: 80
+    step: 1
+    unit_of_measurement: "%"
+  solar_day_discharge_start_soc:
+    name: Solar Day Discharge Start SoC
+    min: 50
+    max: 99
+    step: 1
+    unit_of_measurement: "%"
+  solar_day_discharge_stop_soc:
+    name: Solar Day Discharge Stop SoC
+    min: 40
+    max: 95
+    step: 1
+    unit_of_measurement: "%"
+  solar_release_target_soc:
+    name: Solar Release Target SoC
+    min: 80
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+  solar_release_forecast_factor:
+    name: Solar Release Forecast Factor
+    min: 0.5
+    max: 1.2
+    step: 0.05
+  solar_forecast_scale:
+    name: Solar Forecast Scale
+    min: 0.1
+    max: 1.5
+    step: 0.01
+  hoymiles_limit_correction:
+    name: Hoymiles Limit Correction
+    min: 0.8
+    max: 1.4
+    step: 0.01
+  hoymiles_manual_limit_w:
+    name: Hoymiles Manual Limit
+    min: 0
+    max: 1200
+    step: 5
+    unit_of_measurement: W
+
+input_boolean:
+  hoymiles_manual_control:
+    name: Hoymiles Manual Control
+  hoymiles_full_power:
+    name: Hoymiles Full Power Override
+  solar_day_discharge_latch:
+    name: Solar Day Discharge Latch
+  solar_raise_pending:
+    name: Solar Raise Pending
+  battery_top_balance_mode:
+    name: Battery Top Balance Mode
+
+script:
+  # Run ONCE after install. input_number has no safe default: setting
+  # 'initial' would reset your tuned/learned values on every restart.
+  zes_set_defaults:
+    alias: Zero-Export Solar - Set Default Values
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_battery_capacity_wh
+        data:
+          value: 5120
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_battery_min_voltage
+        data:
+          value: 48.0
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_peak_power_w
+        data:
+          value: 1150
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_peak_start_hour
+        data:
+          value: 17
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_peak_end_hour
+        data:
+          value: 20
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_base_load_w
+        data:
+          value: 120
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_export_buffer
+        data:
+          value: 40
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_soc_floor
+        data:
+          value: 5
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_cloudy_reserve_soc
+        data:
+          value: 35
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_day_discharge_start_soc
+        data:
+          value: 94
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_day_discharge_stop_soc
+        data:
+          value: 90
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_release_target_soc
+        data:
+          value: 95
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_release_forecast_factor
+        data:
+          value: 0.9
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_forecast_scale
+        data:
+          value: 1.0
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.hoymiles_limit_correction
+        data:
+          value: 1.0
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_overnight_hold_soc
+        data:
+          value: 35
+
+sensor:
+  # 3-reading median of the grid meter: single-sample dips are ignored
+  - platform: filter
+    name: Grid Power Median
+    unique_id: zes_grid_power_median
+    entity_id: sensor.grid_power
+    filters:
+      - filter: median
+        window_size: 3
+
+  # Export energy over the last 10 minutes (feeds the export alert)
+  - platform: integration
+    name: Grid Export Energy
+    unique_id: zes_grid_export_energy
+    source: sensor.grid_export_power
+    method: left
+    round: 2
+    max_sub_interval:
+      seconds: 30
+  - platform: statistics
+    name: Grid Export Wh Last 10 Min
+    unique_id: zes_grid_export_wh_10m
+    entity_id: sensor.grid_export_energy
+    state_characteristic: change
+    max_age:
+      minutes: 10
+
+template:
+  - sensor:
+      - name: Grid Export Power
+        unique_id: zes_grid_export_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set g = states('sensor.grid_power') %}
+          {{ ([-(g | float(0)), 0] | max) | round(0) if g | is_number else 0 }}
+
+      # Whole-house load = grid + inverter output, paired at the same moment.
+      # Holds its last value while a limit change is in flight, so a stale
+      # inverter reading never fakes a load spike.
+      - name: House Load
+        unique_id: zes_house_load
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set Pa = states.sensor.inverter_ac_power %}
+          {% set prev0 = this.state | float(none) if this is defined and this is not none else none %}
+          {% if Pa is not none and Pa.state in ['unknown','unavailable'] and (now() - Pa.last_changed).total_seconds() < 600 and prev0 is not none %}
+            {{ prev0 | round(0) }}
+          {% else %}
+            {% set G = states.sensor.grid_power %}
+            {% set L = states.number.inverter_limit %}
+            {% set P = states.sensor.inverter_ac_power %}
+            {% set med0 = states('sensor.grid_power_median') | float(none) %}
+            {% set raw0 = G.state | float(none) if G is not none else none %}
+            {% set raw = raw0 if raw0 is not none else (med0 if med0 is not none else 0) %}
+            {% set med = med0 if med0 is not none else raw %}
+            {% set corr = states('input_number.hoymiles_limit_correction') | float(1) %}
+            {% set pw = P.state | float(0) if P is not none else 0 %}
+            {% set recent = L is not none and (now() - L.last_changed).total_seconds() < 15 %}
+            {% set g_post = recent and G is not none and G.last_reported > L.last_changed + timedelta(seconds=3) %}
+            {% set p_stale = recent and P is not none and is_state('binary_sensor.inverter_producing','on') and P.last_reported < L.last_changed + timedelta(seconds=3) %}
+            {% if recent and not g_post and prev0 is not none %}
+              {{ prev0 | round(0) }}
+            {% else %}
+              {% set out = ((L.state | float(0)) / corr) if p_stale else pw %}
+              {% set g = raw if (g_post or raw < 0) else med %}
+              {{ [g + out, 0] | max | round(0) }}
+            {% endif %}
+          {% endif %}
+
+      # Load-following target minus the export buffer. Falls back to the
+      # fixed base load if the meter goes stale.
+      - name: Solar Safe Load
+        unique_id: zes_solar_safe_load
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set base = states('input_number.solar_base_load_w') | float(120) %}
+          {% set buf = states('input_number.solar_export_buffer') | float(40) %}
+          {% set g = states.sensor.grid_power %}
+          {% set fresh = g is not none and g.state not in ['unknown','unavailable'] and (now() - g.last_reported).total_seconds() < 120 %}
+          {% set hl = states('sensor.house_load') | float(none) %}
+          {% if fresh and hl is not none %}{{ [hl - buf, 0] | max | round(0) }}{% else %}{{ base | round(0) }}{% endif %}
+
+      # How much the battery can release during the day and still reach the
+      # release target SoC by 17:00, using Solcast's P10 (pessimistic) forecast.
+      - name: Solar Early Release
+        unique_id: zes_solar_early_release
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set soc = states('sensor.battery_soc') | float(-1) %}
+          {% set cap_wh = states('input_number.solar_battery_capacity_wh') | float(5120) %}
+          {% set tgt = states('input_number.solar_release_target_soc') | float(95) %}
+          {% set fac = states('input_number.solar_release_forecast_factor') | float(0.9) * states('input_number.solar_forecast_scale') | float(1) %}
+          {% set end = today_at('17:00') %}
+          {% set t0 = now() %}
+          {% set head = (tgt - soc) / 100 * cap_wh %}
+          {% set ns = namespace(cum=0, rate=0) %}
+          {% for p in state_attr('sensor.solcast_pv_forecast_forecast_today','detailedForecast') or [] %}
+            {% set ps = p.period_start if p.period_start is datetime else as_datetime(p.period_start) %}
+            {% set pe = ps + timedelta(minutes=30) %}
+            {% if pe > t0 and ps < end %}
+              {% set s0 = [ps, t0] | max %}{% set e0 = [pe, end] | min %}
+              {% set ns.cum = ns.cum + (p.pv_estimate10 | float(0)) * 1000 * (e0 - s0).total_seconds() / 3600 * fac * 0.95 %}
+              {% set dt = (e0 - t0).total_seconds() / 3600 %}
+              {% if dt >= 0.25 %}{% set ns.rate = [ns.rate, (ns.cum - head) / dt] | max %}{% endif %}
+            {% endif %}
+          {% endfor %}
+          {% if soc < 0 or t0 >= end %}0{% else %}{{ (ns.rate * 0.955) | round(0) }}{% endif %}
+
+      # The watts the controller aims for, by time of day and battery state.
+      - name: Solar Dispatch Target
+        unique_id: zes_solar_dispatch_target
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set soc = states('sensor.battery_soc') | float(-1) %}
+          {% set volt = states('sensor.battery_voltage') | float(0) %}
+          {% set flo = states('input_number.solar_soc_floor') | float(5) %}
+          {% set cap_wh = states('input_number.solar_battery_capacity_wh') | float(5120) %}
+          {% set safe = states('sensor.solar_safe_load') | float(120) %}
+          {% set pmax = states('input_number.solar_peak_power_w') | float(1150) %}
+          {% set ps = states('input_number.solar_peak_start_hour') | float(17) %}
+          {% set pe = states('input_number.solar_peak_end_hour') | float(20) %}
+          {% set h = now().hour + now().minute / 60 %}
+          {% if volt < states('input_number.solar_battery_min_voltage') | float(48) or soc <= flo %}0
+          {% elif is_state('input_boolean.hoymiles_manual_control','on') %}{{ states('input_number.hoymiles_manual_limit_w') | float(0) | round(0) }}
+          {% elif is_state('input_boolean.hoymiles_full_power','on') %}{{ pmax | round(0) }}
+          {% elif ps <= h < pe %}
+            {# Peak: follow the load, but pace the battery so it lasts to the end of peak #}
+            {% set usable_wh = (soc - flo) / 100 * cap_wh * 0.95 %}
+            {% set pace = usable_wh / ([pe - h, 0.25] | max) %}
+            {{ [[safe, pmax] | min, pace] | min | round(0) }}
+          {% elif h >= pe or is_state('sun.sun','below_horizon') %}
+            {% set hold = states('input_number.solar_overnight_hold_soc') | float(flo) %}
+            {{ safe if soc > [hold, flo] | max else 0 }}
+          {% else %}
+            {% set rel = states('sensor.solar_early_release') | float(0) %}
+            {{ safe if is_state('input_boolean.solar_day_discharge_latch','on') else ([safe, rel] | min | round(0)) }}
+          {% endif %}
+
+      - name: Solar Dispatch Mode
+        unique_id: zes_solar_dispatch_mode
+        state: >
+          {% set soc = states('sensor.battery_soc') | float(-1) %}
+          {% set ps = states('input_number.solar_peak_start_hour') | float(17) %}
+          {% set pe = states('input_number.solar_peak_end_hour') | float(20) %}
+          {% set h = now().hour + now().minute / 60 %}
+          {% if soc < 0 %}no_battery_data
+          {% elif states('sensor.battery_voltage') | float(0) < states('input_number.solar_battery_min_voltage') | float(48) %}low_voltage_stop
+          {% elif soc <= states('input_number.solar_soc_floor') | float(5) %}floor_stop
+          {% elif is_state('input_boolean.hoymiles_manual_control','on') %}manual
+          {% elif is_state('input_boolean.hoymiles_full_power','on') %}full_power
+          {% elif ps <= h < pe %}peak
+          {% elif h >= pe or is_state('sun.sun','below_horizon') %}{{ 'night' if soc > [states('input_number.solar_overnight_hold_soc') | float(5), states('input_number.solar_soc_floor') | float(5)] | max else 'night_hold' }}
+          {% elif is_state('input_boolean.solar_day_discharge_latch','on') %}day_overflow
+          {% elif states('sensor.solar_early_release') | float(0) >= 40 %}day_release
+          {% else %}day_hold{% endif %}
+
+automation:
+  # ---------------------------------------------------------------------------
+  # Main controller. Cuts fast on export, raises slowly and only after the
+  # target has stayed above the limit for 20 s (ignores short load spikes).
+  # Acts only once readings have "settled" after its last change.
+  # ---------------------------------------------------------------------------
+  - id: zes_solar_dispatch_controller
+    alias: Solar Dispatch - Controller
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        seconds: "/20"
+      - trigger: state
+        entity_id: sensor.solar_dispatch_target
+      - trigger: state
+        entity_id: sensor.grid_power
+    actions:
+      # Do nothing while the inverter reading is briefly unavailable
+      - condition: template
+        value_template: >
+          {% set A = states.sensor.inverter_ac_power %}
+          {{ not (A is not none and A.state in ['unknown','unavailable'] and (now() - A.last_changed).total_seconds() < 600) }}
+      - variables:
+          tstate: "{{ states('sensor.solar_dispatch_target') }}"
+          target: "{{ states('sensor.solar_dispatch_target') | float(0) }}"
+          corr: "{{ states('input_number.hoymiles_limit_correction') | float(1.0) }}"
+          pmax: "{{ states('input_number.solar_peak_power_w') | float(1150) }}"
+          raw: "{{ is_state('input_boolean.hoymiles_manual_control','on') or is_state('input_boolean.hoymiles_full_power','on') }}"
+          cmd: >
+            {{ ([target, pmax] | min | round(0) | int) if raw
+               else (([[target * corr, 30] | max, pmax] | min) | round(0) | int) }}
+          cur: "{{ states('number.inverter_limit') | float(0) | round(0) | int }}"
+          since: "{{ (now() - states.number.inverter_limit.last_changed).total_seconds() }}"
+          stale_for: "{{ (now() - states.sensor.solar_dispatch_target.last_changed).total_seconds() }}"
+          producing: "{{ is_state('binary_sensor.inverter_producing','on') }}"
+          off_age: "{{ (now() - (states('button.inverter_turn_off') | as_datetime(none) or (now() - timedelta(hours=1)))).total_seconds() }}"
+          on_age: "{{ (now() - (states('button.inverter_turn_on') | as_datetime(none) or (now() - timedelta(hours=1)))).total_seconds() }}"
+          exporting: "{{ states('sensor.grid_power_median') | float(0) < 0 or states('sensor.grid_power') | float(0) < 0 }}"
+          settled: >
+            {% set L = states.number.inverter_limit %}{% set G = states.sensor.grid_power %}
+            {% if L is none or G is none %}true{% else %}
+            {{ (now() - L.last_changed).total_seconds() >= 12 and (G.last_reported - L.last_changed).total_seconds() > 11 }}{% endif %}
+          hard_export: >
+            {% set L = states.number.inverter_limit %}{% set G = states.sensor.grid_power %}
+            {{ G is not none and (G.state | float(0)) < -150 and (L is none or (G.last_reported - L.last_changed).total_seconds() > 4) }}
+      # Cap each raise at +400 W
+      - variables:
+          cmd: "{{ ([cmd, cur + 400] | min) if (not raw and cmd > cur) else cmd }}"
+      - variables:
+          want_up: "{{ not raw and (cmd - cur) >= ([15, 0.04 * cmd] | max) }}"
+      - if: "{{ want_up and is_state('input_boolean.solar_raise_pending','off') }}"
+        then:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.solar_raise_pending
+        else:
+          - if: "{{ not want_up and is_state('input_boolean.solar_raise_pending','on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.solar_raise_pending
+      - choose:
+          - conditions: "{{ tstate in ['unavailable','unknown'] }}"
+            sequence:
+              - if: "{{ stale_for > 300 and producing and off_age > 60 }}"
+                then:
+                  - action: button.press
+                    target:
+                      entity_id: button.inverter_turn_off
+          - conditions: "{{ target < 40 and settled }}"
+            sequence:
+              - if: "{{ producing and off_age > 60 }}"
+                then:
+                  - action: button.press
+                    target:
+                      entity_id: button.inverter_turn_off
+        default:
+          - if: "{{ not producing and on_age > 60 }}"
+            then:
+              - action: button.press
+                target:
+                  entity_id: button.inverter_turn_on
+          - if: >
+              {{ (raw and (cmd - cur) | abs >= 5 and since >= 15)
+                 or (not raw and (
+                   (cur - cmd >= [8, 0.03 * cmd] | max and (hard_export or (settled and (since >= 15 or exporting))))
+                   or (cmd - cur >= [15, 0.04 * cmd] | max and settled and since >= 30
+                       and is_state('input_boolean.solar_raise_pending','on')
+                       and (now() - states.input_boolean.solar_raise_pending.last_changed).total_seconds() >= 20))) }}
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: number.inverter_limit
+                data:
+                  value: "{{ cmd }}"
+
+  # Learns the ratio between commanded limit and actual AC output.
+  - id: zes_learn_limit_correction
+    alias: Solar Dispatch - Learn Limit Correction
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+    conditions:
+      - condition: template
+        value_template: >
+          {% set a = states('sensor.inverter_ac_power') | float(0) %}
+          {% set lim = states('number.inverter_limit') | float(0) %}
+          {% set p = states.sensor.inverter_ac_power %}{% set n = states.number.inverter_limit %}
+          {{ is_state('binary_sensor.inverter_producing','on') and a > 80
+             and 100 <= lim < (states('input_number.solar_peak_power_w') | float(1150)) - 5
+             and (now() - p.last_reported).total_seconds() < 60
+             and (now() - n.last_changed).total_seconds() > 40 }}
+    actions:
+      - variables:
+          a: "{{ states('sensor.inverter_ac_power') | float }}"
+          lim: "{{ states('number.inverter_limit') | float }}"
+          c: "{{ states('input_number.hoymiles_limit_correction') | float(1.0) }}"
+          new: "{{ ([[0.7 * c + 0.3 * (lim / a), 0.8] | max, 1.4] | min) | round(2) }}"
+      - condition: template
+        value_template: "{{ (new - c) | abs >= 0.01 }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.hoymiles_limit_correction
+        data:
+          value: "{{ new }}"
+
+  # Backstop: if the battery still fills despite the forecast, run at full
+  # house load until it drops back to the stop SoC.
+  - id: zes_daytime_overflow_latch
+    alias: Solar Dispatch - Daytime Full-Battery Backstop
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.battery_soc
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - "{{ states('sensor.battery_soc') | is_number }}"
+    actions:
+      - variables:
+          soc: "{{ states('sensor.battery_soc') | float(0) }}"
+      - choose:
+          - conditions: "{{ soc >= states('input_number.solar_day_discharge_start_soc') | float(94) }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.solar_day_discharge_latch
+          - conditions: "{{ soc <= states('input_number.solar_day_discharge_stop_soc') | float(90) }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.solar_day_discharge_latch
+
+  # Each evening, size tomorrow night's reserve from Solcast.
+  - id: zes_overnight_hold_from_forecast
+    alias: Solar Dispatch - Set Overnight Hold From Forecast
+    mode: single
+    triggers:
+      - trigger: time
+        at: "19:55:00"
+    actions:
+      - variables:
+          cap_wh: "{{ states('input_number.solar_battery_capacity_wh') | float(5120) }}"
+          flo: "{{ states('input_number.solar_soc_floor') | float(5) }}"
+          reserve_max: "{{ states('input_number.solar_cloudy_reserve_soc') | float(35) }}"
+          pmax: "{{ states('input_number.solar_peak_power_w') | float(1150) }}"
+          peak_h: "{{ states('input_number.solar_peak_end_hour') | float(20) - states('input_number.solar_peak_start_hour') | float(17) }}"
+          need_wh: "{{ (pmax * peak_h / 0.95) | round(0) }}"
+          fc_kwh: "{{ state_attr('sensor.solcast_pv_forecast_forecast_tomorrow','estimate') }}"
+          solcast_ok: "{{ fc_kwh is number and states('sensor.solcast_pv_forecast_forecast_tomorrow') not in ['unknown','unavailable'] }}"
+          scale: "{{ states('input_number.solar_forecast_scale') | float(1) }}"
+          charge_wh: "{{ ((fc_kwh | float(0)) * 1000 * scale * 0.95) | round(0) }}"
+          hold: "{{ ([[flo + (need_wh - charge_wh) / cap_wh * 100, flo] | max, reserve_max] | min) | round(0, 'ceil') }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.solar_overnight_hold_soc
+        data:
+          value: "{{ hold if solcast_ok else reserve_max }}"
+      - action: logbook.log
+        data:
+          name: Solar overnight hold
+          entity_id: input_number.solar_overnight_hold_soc
+          message: >
+            {% if solcast_ok %}set to {{ hold }}%: Solcast tomorrow {{ fc_kwh }} kWh x {{ scale }} -> ~{{ charge_wh }} Wh vs {{ need_wh }} Wh needed for peak
+            {% else %}Solcast unavailable: held at cloudy reserve {{ reserve_max }}%{% endif %}
+
+  - id: zes_manual_full_power_exclusive
+    alias: Hoymiles - Manual / Full Power Mutually Exclusive
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.hoymiles_manual_control
+        to: "on"
+        id: manual
+      - trigger: state
+        entity_id: input_boolean.hoymiles_full_power
+        to: "on"
+        id: full
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: "{{ 'input_boolean.hoymiles_full_power' if trigger.id == 'manual' else 'input_boolean.hoymiles_manual_control' }}"
+
+  # Alerts on real controller failures, not the brief spikes when a big load
+  # switches off. (One AC compressor shutoff exports ~1 Wh.)
+  - id: zes_grid_export_alert
+    alias: Grid Export Alert
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.grid_power_median
+        below: 0
+        for:
+          minutes: 1
+        id: sustained
+      - trigger: numeric_state
+        entity_id: sensor.grid_export_wh_last_10_min
+        above: 6
+        id: energy
+    actions:
+      - action: notify.notify
+        data:
+          title: Exporting to the grid
+          message: >
+            {{ 'Export has lasted over 60 seconds' if trigger.id == 'sustained'
+               else (states('sensor.grid_export_wh_last_10_min') | float(0) | round(1)) ~ ' Wh exported in the last 10 minutes' }}.
+            Meter: {{ (-(states('sensor.grid_power') | float(0))) | round(0) | int }} W out.
+            Inverter {{ states('sensor.inverter_ac_power') | float(0) | round(0) | int }} W
+            (limit {{ states('number.inverter_limit') | float(0) | round(0) | int }} W), mode {{ states('sensor.solar_dispatch_mode') }}.
+      - delay: "00:10:00"
+
+  - id: zes_stale_data_alert
+    alias: Solar Dispatch - Fault / Stale Data Alert
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.solar_dispatch_target
+        to: ["unavailable", "unknown"]
+        for: "00:05:00"
+      - trigger: state
+        entity_id: binary_sensor.inverter_reachable
+        to: "off"
+        for: "00:10:00"
+    actions:
+      - action: notify.notify
+        data:
+          title: Solar dispatch fault
+          message: "{{ trigger.to_state.name }} is {{ trigger.to_state.state }}: inverter control may be stale."
+
+  # Optional: keep LiFePO4 between the floor and 95 % for longevity, with a
+  # monthly top-balance to 100 %. Remove if your BMS has no charge switch.
+  - id: zes_battery_charge_cap
+    alias: Battery - Charge Cap 95%
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.battery_soc
+        above: 95
+        id: stop
+      - trigger: numeric_state
+        entity_id: sensor.battery_soc
+        below: 93
+        id: resume
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: stop
+              - condition: state
+                entity_id: input_boolean.battery_top_balance_mode
+                state: "off"
+            sequence:
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.battery_charge_switch
+          - conditions:
+              - condition: trigger
+                id: resume
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.battery_charge_switch
+
+  - id: zes_battery_top_balance_start
+    alias: Battery - Enable Monthly Top Balance
+    mode: single
+    triggers:
+      - trigger: time
+        at: "08:00:00"
+    conditions:
+      - "{{ now().day == 1 }}"
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.battery_top_balance_mode
+
+  - id: zes_battery_top_balance_end
+    alias: Battery - Complete Top Balance
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.battery_soc
+        above: 99
+    conditions:
+      - condition: state
+        entity_id: input_boolean.battery_top_balance_mode
+        state: "on"
+    actions:
+      - delay:
+          hours: 3
+      - if:
+          - condition: numeric_state
+            entity_id: sensor.battery_soc
+            above: 94.9
+        then:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.battery_charge_switch
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.battery_top_balance_mode
