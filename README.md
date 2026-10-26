@@ -1,5 +1,7 @@
 # ZeroSpill: battery-buffered zero-export solar
 
+<p align="center"><a href="https://buymeacoffee.com/jakeshake"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=jakeshake&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee" height="40"></a></p>
+
 A DIY, battery-buffered solar system that feeds **only what the house is using**. It never intentionally exports to the grid, and it shifts stored solar into expensive time-of-use (TOU) hours. Everything runs locally in Home Assistant, with no cloud dependency.
 
 > ⚠️ **Read [Safety & Legal](docs/safety-and-legal.md) before you buy anything.**
@@ -68,6 +70,8 @@ Expect summer yield to be higher and winter lower. These are a handful of autumn
 
 ![Last 7 days: house load by source](images/home-energy-week.jpg)
 ![Today, hour by hour](images/home-energy-today.jpg)
+
+If ZeroSpill saves you money on your power bill, consider [buying me a coffee](https://buymeacoffee.com/jakeshake).
 
 ## Credits
 
