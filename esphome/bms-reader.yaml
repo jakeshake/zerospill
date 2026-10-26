@@ -1,0 +1,261 @@
+# =============================================================================
+# BMS reader + local failsafes (ESP32 / ESP32-S3, ESPHome)
+# Reads a JBD (Jiabaida / Xiaoxiang) BMS over Bluetooth with syssi/esphome-jbd-bms.
+#
+# LOCAL FAILSAFES: these run on the ESP32 itself, so they keep working with Wi-Fi or
+# Home Assistant down:
+#   * Low-battery: SoC <= 3 % OR min cell <= 2.90 V for ~30 s -> discharge FET OFF.
+#     Re-arms only after its own trip, once SoC >= 10 % AND charge current > 2 A.
+#   * Cold-charge lockout: coldest NTC <= 3 C for ~30 s -> charge FET OFF.
+#     Re-arms only after its own trip, once coldest NTC >= 7 C.
+# Both latches survive reboots and re-send OFF every 10 s if a BLE write fails.
+#
+# Set BMS_MAC below. Thresholds are in `substitutions`.
+# In Home Assistant, the package expects sensor.battery_soc, sensor.battery_voltage and
+# switch.battery_charge_switch. Point it at "BMS State of Charge", "BMS Total Voltage"
+# and "BMS Charge Switch" from this device.
+# =============================================================================
+substitutions:
+  bms_mac: "AA:BB:CC:DD:EE:FF"        # your BMS's Bluetooth MAC
+  failsafe_trip_soc: "3.0"
+  failsafe_trip_cell_v: "2.90"
+  failsafe_rearm_soc: "10.0"
+  failsafe_rearm_amps: "2.0"          # positive = charging on JBD
+  cold_trip_c: "3.0"
+  cold_rearm_c: "7.0"
+
+esphome:
+  name: bms-reader
+  friendly_name: BMS Reader
+  min_version: 2026.4.0
+
+esp32:
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  reboot_timeout: 0s                  # never reboot just because HA is unreachable
+  encryption:
+    key: !secret bms_reader_api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s                  # never reboot because Wi-Fi is down
+  ap:
+    ssid: "BMS-Reader-Fallback"
+    password: !secret fallback_ap_password
+
+external_components:
+  - source: github://syssi/esphome-jbd-bms@2.5.0
+    refresh: 0s
+
+esp32_ble_tracker:
+  id: ble_tracker
+  scan_parameters:
+    interval: 1100ms
+    window: 320ms                     # ~30 % duty leaves radio time for Wi-Fi
+    active: false
+
+ble_client:
+  - id: bms_client
+    mac_address: ${bms_mac}
+
+jbd_bms_ble:
+  - id: my_bms
+    ble_client_id: bms_client
+    update_interval: 4s
+
+sensor:
+  - platform: jbd_bms_ble
+    jbd_bms_ble_id: my_bms
+    total_voltage:
+      name: "BMS Total Voltage"
+    current:
+      name: "BMS Current"
+      id: bms_current
+    power:
+      name: "BMS Power"
+    state_of_charge:
+      name: "BMS State of Charge"
+      id: bms_soc
+    nominal_capacity:
+      name: "BMS Capacity"
+    charging_cycles:
+      name: "BMS Cycles"
+    min_cell_voltage:
+      name: "BMS Min Cell Voltage"
+      id: bms_min_cell_voltage
+    max_cell_voltage:
+      name: "BMS Max Cell Voltage"
+    average_cell_voltage:
+      name: "BMS Avg Cell Voltage"
+    delta_cell_voltage:
+      name: "BMS Cell Delta"
+    temperature_1:
+      name: "BMS Temp 1"
+      id: bms_temp_1
+    temperature_2:
+      name: "BMS Temp 2"
+      id: bms_temp_2
+    # Per-cell voltages: add cell_voltage_1 ... cell_voltage_16 if you want them in HA.
+  - platform: internal_temperature
+    name: "ESP32 Chip Temperature"
+    update_interval: 60s
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+binary_sensor:
+  - platform: jbd_bms_ble
+    jbd_bms_ble_id: my_bms
+    charging:
+      name: "BMS Charging Status"
+    discharging:
+      name: "BMS Discharging Status"
+  - platform: template
+    name: "BMS Discharge Failsafe Tripped"
+    id: bms_failsafe_tripped
+    device_class: problem
+    lambda: "return id(failsafe_tripped);"
+  - platform: template
+    name: "BMS Cold Charge Lockout"
+    id: bms_cold_lockout
+    device_class: cold
+    lambda: "return id(cold_lockout);"
+
+switch:
+  - platform: ble_client
+    ble_client_id: bms_client
+    name: "BMS Enable Bluetooth"
+  - platform: jbd_bms_ble
+    jbd_bms_ble_id: my_bms
+    charging:
+      name: "BMS Charge Switch"
+      id: bms_charging
+    discharging:
+      name: "BMS Discharge Switch"
+      id: bms_discharging
+
+globals:
+  - id: failsafe_tripped
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  - id: failsafe_low_count
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: cold_lockout
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  - id: cold_count
+    type: int
+    restore_value: false
+    initial_value: "0"
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+  - platform: template
+    name: "BMS Discharge Failsafe Last Action"
+    id: bms_failsafe_last_action
+    update_interval: never
+  - platform: template
+    name: "BMS Cold Lockout Last Action"
+    id: bms_cold_last_action
+    update_interval: never
+
+interval:
+  # ---- Low-battery discharge failsafe ----
+  - interval: 10s
+    then:
+      - lambda: |-
+          const float soc = id(bms_soc).state;
+          const float vmin = id(bms_min_cell_voltage).state;
+          const float amps = id(bms_current).state;   // negative = discharging
+          char buf[96];
+          if (isnan(soc) || isnan(vmin)) return;      // no BMS data yet
+
+          // Must hold 3 consecutive checks (~30 s). vmin > 0.5 ignores bogus 0 V frames.
+          const bool low = (soc <= ${failsafe_trip_soc}f) ||
+                           (vmin > 0.5f && vmin <= ${failsafe_trip_cell_v}f);
+          id(failsafe_low_count) = low ? id(failsafe_low_count) + 1 : 0;
+
+          if (id(failsafe_low_count) >= 3 && id(bms_discharging).state) {
+            ESP_LOGW("failsafe", "SoC %.1f%%, min cell %.3f V -> discharge OFF", soc, vmin);
+            if (!id(failsafe_tripped)) {
+              snprintf(buf, sizeof(buf), "tripped: SoC %.0f%%, min cell %.3f V", soc, vmin);
+              id(bms_failsafe_last_action).publish_state(buf);
+            }
+            id(failsafe_tripped) = true;
+            id(bms_discharging).turn_off();
+            return;
+          }
+
+          // Re-arm only after its own trip, and only while solar is charging
+          if (id(failsafe_tripped) && !id(bms_discharging).state &&
+              soc >= ${failsafe_rearm_soc}f && !isnan(amps) && amps > ${failsafe_rearm_amps}f) {
+            snprintf(buf, sizeof(buf), "re-armed: SoC %.0f%%, charging %.1f A", soc, amps);
+            id(bms_failsafe_last_action).publish_state(buf);
+            id(failsafe_tripped) = false;
+            id(bms_discharging).turn_on();
+            return;
+          }
+
+          // Re-enabled by hand after the condition cleared -> drop the latch
+          if (id(failsafe_tripped) && id(bms_discharging).state && !low) {
+            id(failsafe_tripped) = false;
+            id(bms_failsafe_last_action).publish_state("cleared: discharge re-enabled manually");
+          }
+
+  # ---- Cold-charge lockout ----
+  - interval: 10s
+    then:
+      - lambda: |-
+          const float tmin = fminf(id(bms_temp_1).state, id(bms_temp_2).state);  // ignores a single NaN
+          char buf[96];
+          // No data, or a bogus frame (all-zero field decodes to -273 C)
+          if (isnan(tmin) || tmin < -30.0f || tmin > 90.0f) return;
+
+          const bool cold = tmin <= ${cold_trip_c}f;
+          id(cold_count) = cold ? id(cold_count) + 1 : 0;
+
+          if (id(cold_count) >= 3 && id(bms_charging).state) {
+            ESP_LOGW("cold", "tmin %.1f C -> charge OFF", tmin);
+            if (!id(cold_lockout)) {
+              snprintf(buf, sizeof(buf), "locked: coldest NTC %.1f C", tmin);
+              id(bms_cold_last_action).publish_state(buf);
+            }
+            id(cold_lockout) = true;
+            id(bms_charging).turn_off();
+            return;
+          }
+
+          if (id(cold_lockout) && !id(bms_charging).state && tmin >= ${cold_rearm_c}f) {
+            snprintf(buf, sizeof(buf), "released: coldest NTC %.1f C", tmin);
+            id(bms_cold_last_action).publish_state(buf);
+            id(cold_lockout) = false;
+            id(bms_charging).turn_on();
+            return;
+          }
+
+          if (id(cold_lockout) && id(bms_charging).state && !cold) {
+            id(cold_lockout) = false;
+            id(bms_cold_last_action).publish_state("cleared: charging re-enabled manually");
+          }
+
+debug:
+  update_interval: 60s

@@ -40,7 +40,7 @@ If you want something you can buy, plug into a 120 V outlet, and stay within you
    Hoymiles HM-1200NT ◄──NRF24── ESP32-S3 (OpenDTU-OnBattery) ◄──MQTT── HA controller
           │                                                          ▲
    6-20P → dedicated 240 V circuit ──► house ──► utility meter ──Zigbee──► Emporia Vue (ESPHome)
-                                                  fast loads ──► Sonoff S31 (ESPHome)
+                                                  (optional) Sonoff S31: appliance metering
 ```
 
 ## Docs

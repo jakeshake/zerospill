@@ -1,0 +1,58 @@
+# =============================================================================
+# Passive Bluetooth proxy (M5Stack Atom Lite, or any ESP32)
+# Relays the Victron SmartSolar's BLE "Instant Readout" broadcasts to Home Assistant's
+# Victron BLE integration (you'll need the MPPT's encryption key from VictronConnect).
+# Keeping this role separate from the BMS reader made both more reliable here, since the BMS
+# board holds a constant BLE connection, which competes with scanning.
+# Place it within BLE range of the MPPT.
+# =============================================================================
+esphome:
+  name: bt-proxy
+  friendly_name: BT Proxy
+
+esp32:
+  board: m5stack-atom
+  framework:
+    type: esp-idf                     # recommended for bluetooth_proxy
+
+logger:
+
+api:
+  encryption:
+    key: !secret bt_proxy_api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "BT-Proxy-Fallback"
+    password: !secret fallback_ap_password
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 1100ms
+    window: 1100ms
+    active: false
+
+bluetooth_proxy:
+  active: false                       # passive is enough for Victron broadcasts
+
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+
+debug:
+  update_interval: 60s

@@ -74,7 +74,7 @@ If the circuit breaker is larger than the cord/pigtail rating, add an inline 2-p
 ## 8. Grid metering
 - **Emporia Vue Utility Connect** reads your smart meter over Zigbee. It must be **provisioned by your utility**, and it **only works with supported meters/utilities.** Check before buying.
 - Flash it with ESPHome using **[nekorevend/esphome-emporia-vue-utility](https://github.com/nekorevend/esphome-emporia-vue-utility)**. Follow that repo's instructions; they're maintained upstream.
-- The Vue updates every few seconds to ~30 s depending on the meter, and that's the controller's sensing bottleneck. For large, fast-switching loads (air fryer, kettle), an ESPHome-flashed Sonoff S31 gives ~1 s readings the controller can act on sooner.
+- The Vue updates every few seconds to ~30 s depending on the meter, and that's the controller's sensing bottleneck. An ESPHome-flashed Sonoff S31 gives ~1 s readings for one appliance. It's useful for *measuring* fast-cycling loads, but it didn't meaningfully improve zero export here (see [esphome/README](../esphome/README.md#about-the-sonoff-s31-a-measuring-tool-not-a-zero-export-fix)).
 
 ## 9. Home Assistant
 See [home-assistant.md](home-assistant.md).

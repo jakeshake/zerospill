@@ -28,7 +28,7 @@ OpenDTU radio stats showed ~42 % RX success, 58 % partial receives, and −80 dB
 ## Brief export spikes
 Mostly caused by **AC compressor and air fryer cycling**: the load drops faster than the Vue reports.
 - The controller cuts fast and raises slowly.
-- A dedicated fast-cut automation acts on ~1 s readings from an S31 on the air fryer.
+- A ~1 s S31 plug meter on the air fryer with a fast-cut automation was tried. It helped little, because the inverter takes several seconds to apply a new limit, and the AC compressor (the biggest source) can't be plug-metered. It's kept as a measuring tool.
 - Keep a small import buffer (~30–50 W) and a guaranteed base load (fridge/freezer) as the floor.
 
 ## Battery charging in the cold

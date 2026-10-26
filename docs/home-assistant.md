@@ -8,7 +8,7 @@ Every cycle, the controller:
 4. Turns the inverter off (gated, not on every dip) when the target stays below a useful minimum.
 
 Supporting pieces:
-- **Fast-cut automation:** drops the limit immediately on large power drops from a ~1 s plug meter (e.g. the air fryer).
+- **Optional fast-cut automation:** drops the limit as soon as a ~1 s plug meter (Sonoff S31) sees a big appliance turn off. It isn't in the package because the gain was small. Inverter response time, not sensing, sets the size of an export spike.
 - **Limit-correction learner:** learns the ratio between the commanded limit and actual output.
 - **Overnight hold / forecast:** uses Solcast to decide how much battery to reserve for the 5–8 pm peak and overnight.
 - **Alerts:** stale data (DTU unreachable), grid export, low-yield day, high wind for the panels.

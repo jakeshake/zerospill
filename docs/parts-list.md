@@ -40,7 +40,7 @@ Prices are omitted on purpose because they change weekly. Bold items are the one
 | **NRF24L01+ PA+LNA** + breakout | 1 | Power from 3V3. Add a 10–47 µF electrolytic + 100 nF ceramic across VCC/GND. |
 | ESP32 (ESPHome) for BMS + BT proxy | 1–2 | ESP32-S3 and/or M5Stack Atom. Splitting BMS reading and Victron proxying across two boards improved reliability. |
 | **Emporia Vue Utility Connect** | 1 | Must be provisioned by your utility. **Only works with supported Zigbee smart meters**, so check before buying. Reflashed with ESPHome. |
-| Sonoff S31 (optional) | 1+ | ESPHome-flashed plug for ~1 s metering of big, fast-cycling loads. |
-| USB-UART adapter (3.3 V) | 1 | For flashing the S31 and the Vue. |
+| Sonoff S31 (optional) | 0–1 | **Measuring tool, not a zero-export fix.** ~1 s metering of one fast-cycling appliance. Fiddly to flash (open the case; pads, ideally a pogo-pin jig). [Details](../esphome/README.md#about-the-sonoff-s31-a-measuring-tool-not-a-zero-export-fix) |
+| USB-UART adapter (3.3 V) | 1 | **Required** for flashing the Vue; also used for the S31. |
 | IP65/67 enclosure | 1–2 | For the DTU and BMS boards if they live outdoors. |
 | Multimeter | 1 | **Required.** Verify every polarity and receptacle voltage before energizing. |
