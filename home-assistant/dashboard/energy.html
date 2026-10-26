@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Energy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Home Energy dashboard (ZeroSpill): https://github.com/jakeshake/zerospill
+   Standalone page for /config/www, talks to HA over WebSocket.
+   Inspired by u/Potential-Cod-1851's "Home energy" page; written from scratch. */
+:root{
+  --bg:#0b0e15; --panel:#121722; --panel2:#161b26; --tile:#1b2130; --line:#232a3a;
+  --ink:#eef1f7; --ink2:#a8b0c2; --ink3:#6c7488;
+  --solar:#c4850f; --home:#3a8ad0; --battery:#1f9e68; --grid:#8a93a3; --soc:#8b6cf0;
+  --solar-ink:#f0b545; --good:#3ecf8e; --warn:#f0b545; --bad:#f06b6b;
+  --accent:#5fe0c4; --r:20px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Plus Jakarta Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{min-height:100vh;padding:20px 16px 32px;background:radial-gradient(1200px 600px at 10% -10%,#16202f 0,transparent 60%),var(--bg)}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{width:50px;height:50px;border-radius:15px;display:grid;place-items:center;background:linear-gradient(135deg,#d6f5b0,#5fe0c4);color:#0b2a22;flex:none}
+.title h1{margin:0;font-size:24px;font-weight:800;letter-spacing:-.02em}
+.sub{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--ink2);flex-wrap:wrap;margin-top:2px}
+.sub b{color:var(--ink);font-weight:700}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;margin-right:6px;box-shadow:0 0 0 3px #3ecf8e22}
+.tabs{margin-left:auto;display:flex;gap:4px;padding:5px;border-radius:16px;background:var(--panel);border:1px solid var(--line)}
+.tabs button{all:unset;cursor:pointer;padding:9px 16px;border-radius:11px;font-weight:600;font-size:14px;color:var(--ink2)}
+.tabs button[aria-selected=true]{background:var(--accent);color:#08251f}
+.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--r);padding:18px 18px 16px}
+.card h2{margin:0;font-size:16px;font-weight:700}
+.card .hint{font-size:12.5px;color:var(--ink3);margin-top:2px}
+.row{display:grid;grid-template-columns:1fr 1.25fr;gap:16px}
+@media (max-width:860px){.row{grid-template-columns:1fr}.tabs{margin-left:0;width:100%;justify-content:space-between}.tabs button{flex:1;text-align:center;padding:9px 6px}}
+.chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+.sw.ln{height:3px;border-radius:2px;width:14px}
+svg{display:block;width:100%;overflow:visible}
+svg text{fill:var(--ink3);font-size:11px;font-family:inherit}
+.chartbox{position:relative}
+.tip{position:absolute;pointer-events:none;background:#0d111bf2;border:1px solid var(--line);border-radius:12px;padding:9px 11px;font-size:12px;min-width:150px;box-shadow:0 8px 30px #0008;opacity:0;transition:opacity .1s;z-index:5}
+.tip .t{font-weight:700;margin-bottom:4px;color:var(--ink)}
+.tip .r{display:flex;justify-content:space-between;gap:14px;color:var(--ink2);line-height:1.6}
+.tip .r b{color:var(--ink);font-weight:600}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+@media (max-width:520px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--tile);border:1px solid var(--line);border-radius:14px;padding:11px 12px}
+.tile .k{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+.tile .v{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+.tile .v small{font-size:12px;font-weight:600;color:var(--ink2);margin-left:2px}
+.tile .d{font-size:12px;color:var(--ink2);margin-top:1px}
+.tile.saved{background:linear-gradient(160deg,#173327,#152a22);border-color:#22513b}
+.tile.saved .v{color:var(--good)}
+.v.solar{color:var(--solar-ink)}
+.donutrow{display:flex;gap:22px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.donut{width:120px;height:120px;flex:none}
+.donut text{fill:var(--ink)}
+.srcs{flex:1;min-width:200px;display:flex;flex-direction:column;gap:9px;font-size:13.5px}
+.srcs div{display:grid;grid-template-columns:auto 1fr auto 44px;gap:9px;align-items:center;color:var(--ink2)}
+.srcs b{color:var(--ink);font-weight:700;text-align:right}
+.srcs i{font-style:normal;color:var(--ink3);text-align:right}
+.ratepill{display:flex;align-items:center;gap:8px;background:var(--tile);border:1px solid var(--line);border-radius:12px;padding:6px 12px;font-size:12px;color:var(--ink2)}
+.ratepill b{font-size:16px;color:var(--ink)}
+.peak{color:var(--warn)!important}
+.hidden{display:none!important}
+.msg{padding:28px;text-align:center;color:var(--ink2)}
+.msg input{width:100%;max-width:520px;margin:12px auto;display:block;background:var(--tile);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px;font:inherit}
+.msg button{background:var(--accent);border:0;border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+th{text-align:left;color:var(--ink3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid #1d2332;color:var(--ink2)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink)}
+.stale{color:var(--bad)} .fresh{color:var(--good)}
+/* flow */
+.flow text{fill:var(--ink)}
+.flow .lbl{fill:var(--ink3);font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.flow .val{font-size:22px;font-weight:800}
+.flowline{fill:none;stroke-width:3;stroke-linecap:round}
+.flowline.on{stroke-dasharray:2 12;animation:dash var(--spd,1.2s) linear infinite}
+@keyframes dash{to{stroke-dashoffset:-28}}
+@media (prefers-reduced-motion:reduce){.flowline.on{animation:none;stroke-dasharray:none}}
+.nowgrid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+@media (max-width:860px){.nowgrid{grid-template-columns:1fr}}
+.big{font-size:44px;font-weight:800;letter-spacing:-.03em}
+.kv{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #1d2332;font-size:14px;color:var(--ink2)}
+.kv b{color:var(--ink)}
+footer{font-size:11.5px;color:var(--ink3);text-align:center}
+/* phone layout: bigger power-flow nodes, tables that fit without sideways scrolling */
+.tscroll{margin-top:12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tscroll>table{margin-top:0}
+.only-narrow{display:none}
+.flow.compact{max-width:420px;margin:6px auto 0}
+.flow.compact .lbl{font-size:12.5px;letter-spacing:.03em}
+.flow.compact .val{font-size:26px}
+@media (max-width:560px){
+  body{padding:16px 12px 28px}
+  .card{padding:16px 14px 14px}
+  .only-wide{display:none}
+  .only-narrow{display:inline}
+  #wtable th,#wtable td{padding:8px 4px;white-space:nowrap}
+  #wtable th{font-size:10px;letter-spacing:.04em}
+  #wtable tr>:first-child{padding-left:0}
+  #wtable tr>:last-child{padding-right:0}
+  #systable,#systable tbody{display:block}
+  #systable tr:first-child{display:none}
+  #systable tr{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:3px;padding:11px 0;border-bottom:1px solid #1d2332}
+  #systable td{padding:0;border:0}
+  #systable td:nth-child(1){grid-area:1/1;align-self:baseline;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+  #systable td:nth-child(2){display:contents}
+  #systable td:nth-child(2) br{display:none}
+  #systable td:nth-child(2)>b{grid-area:2/1;align-self:baseline;line-height:1.35}
+  #systable td:nth-child(2)>span{grid-area:3/1/4/3;overflow-wrap:anywhere}
+  #systable td:nth-child(3){grid-area:1/2;align-self:baseline;font-size:14.5px;font-weight:700;color:var(--ink);white-space:nowrap}
+  #systable td.stale:nth-child(3){color:var(--bad)}
+  #systable td:nth-child(4){grid-area:2/2;align-self:baseline;font-size:12px;white-space:nowrap}
+}
+@media (max-width:374px){
+  #wtable{font-size:12px}
+  #wtable th,#wtable td{padding:7px 3px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+    <div class="title">
+      <h1>Home energy</h1>
+      <div class="sub"><span><span class="dot" id="hdot"></span><b id="hstatus">Connecting…</b></span><span id="hline"></span></div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="now" aria-selected="false">Now</button>
+      <button role="tab" data-tab="today" aria-selected="true">Today</button>
+      <button role="tab" data-tab="week" aria-selected="false">Week</button>
+      <button role="tab" data-tab="system" aria-selected="false">System</button>
+    </nav>
+  </header>
+
+  <div id="auth" class="card msg hidden"></div>
+
+  <!-- NOW -->
+  <section id="tab-now" class="hidden">
+    <div class="nowgrid">
+      <div class="card"><div class="chead"><div><h2>Right now</h2><div class="hint">Live power flow · updates as sensors report</div></div></div>
+        <svg id="flow" class="flow" viewBox="0 0 640 400" role="img" aria-label="Live power flow"></svg></div>
+      <div class="card"><h2>Electricity price</h2><div class="hint" id="touhint"></div>
+        <div class="big" id="nowrate" style="margin-top:10px">—</div>
+        <div id="nowkv" style="margin-top:8px"></div></div>
+    </div>
+  </section>
+
+  <!-- TODAY -->
+  <section id="tab-today">
+    <div class="card">
+      <div class="chead">
+        <div><h2>Today, hour by hour</h2><div class="hint" id="todayhint">Loading…</div></div>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--solar)"></i>Solar</span>
+          <span><i class="sw ln" style="background:var(--home)"></i>Home</span>
+          <span><i class="sw" style="background:var(--grid)"></i>Grid</span>
+          <span><i class="sw ln" style="background:var(--battery)"></i>Battery (+out / −in)</span>
+        </div>
+      </div>
+      <div class="chartbox" id="pbox"><svg id="pchart"></svg><div class="tip" id="ptip"></div></div>
+      <div class="chead" style="margin:14px 0 2px"><div class="hint"><i class="sw ln" style="background:var(--soc);vertical-align:middle;margin-right:6px"></i>Battery charge</div></div>
+      <div class="chartbox"><svg id="schart"></svg></div>
+    </div>
+    <div class="row">
+      <div class="card"><h2>Where your power came from</h2><div class="hint" id="srchint"></div>
+        <div class="donutrow"><svg class="donut" id="donut" viewBox="0 0 120 120"></svg><div class="srcs" id="srcs"></div></div></div>
+      <div class="card">
+        <div class="chead" style="margin:0"><div><h2>Today's totals</h2><div class="hint">Costed hour by hour at your live electricity rate</div></div>
+          <div class="ratepill"><span>now</span><b id="ratepill">—</b><span>/kWh</span></div></div>
+        <div class="tiles" id="tiles"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WEEK -->
+  <section id="tab-week" class="hidden">
+    <div class="card">
+      <div class="chead"><div><h2>Last 7 days</h2><div class="hint">What the house used each day, split by where it came from</div></div>
+        <div class="legend"><span><i class="sw" style="background:var(--battery)"></i>Battery + solar</span><span><i class="sw" style="background:var(--grid)"></i>Grid</span></div></div>
+      <div class="chartbox" id="wbox"><svg id="wchart"></svg><div class="tip" id="wtip"></div></div>
+      <div class="tscroll"><table id="wtable"></table></div>
+    </div>
+  </section>
+
+  <!-- SYSTEM -->
+  <section id="tab-system" class="hidden">
+    <div class="card"><h2>Sources</h2><div class="hint">Read from Settings → Energy. Live power sensors that haven't reported within the stale threshold are flagged red.</div><div class="tscroll"><table id="systable"></table></div></div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+/* ===================== CONFIG ===================== */
+// Solar / battery / grid / price entities come from your Energy dashboard settings automatically.
+// Only things the Energy config doesn't know about live here.
+const CONFIG = {
+  // REQUIRED: battery state of charge (%), e.g. from your BMS
+  socEntity: 'sensor.battery_soc',
+  // OPTIONAL: inverter AC output (W), e.g. OpenDTU-OnBattery's AC power.
+  // When set, house load = grid + inverter (avoids counting MPPT/wiring losses as load).
+  // Set to null to use solar + battery + grid instead.
+  inverterEntity: 'sensor.inverter_ac_power',
+  // OPTIONAL: BMS discharge-FET status (binary_sensor, on = discharging allowed).
+  // When it's off, solar feeds the inverter directly and the flow diagram shows Solar -> Home. null to skip.
+  dischargeEntity: null,
+  peakHours: [17, 20],          // your on-peak TOU window (local hours, end exclusive)
+  fixedDailyCharge: null,       // $/day; null = use the daily cost adjustment from Energy settings
+  staleSeconds: 180,            // System tab flags power sensors older than this
+  statsRefreshMs: 5 * 60 * 1000,
+};
+/* ================================================== */
+
+const $ = s => document.querySelector(s);
+const NS = 'http://www.w3.org/2000/svg';
+const fmtW = w => w == null || isNaN(w) ? '—' : Math.abs(w) >= 1000 ? (w / 1000).toFixed(Math.abs(w) >= 10000 ? 0 : 2) + ' kW' : Math.round(w) + ' W';
+const fmtKWh = k => k == null || isNaN(k) ? '—' : (Math.abs(k) < 1 ? k.toFixed(2) : k.toFixed(1));
+const fmt$ = v => v == null || isNaN(v) ? '—' : '$' + v.toFixed(2);
+const pad = n => String(n).padStart(2, '0');
+const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+const toMs = t => typeof t === 'number' ? (t < 1e12 ? t * 1000 : t) : Date.parse(t);
+const num = s => { const v = parseFloat(s); return isFinite(v) ? v : null; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ---------- auth + websocket ---------- */
+const TOKENS_KEY = 'hassTokens', LLAT_KEY = 'energyDash.llat';
+async function getAccessToken() {
+  const llat = (() => { try { return localStorage.getItem(LLAT_KEY); } catch { return null; } })();
+  if (llat) return llat;
+  let t; try { t = JSON.parse(localStorage.getItem(TOKENS_KEY)); } catch { t = null; }
+  if (!t || !t.refresh_token) throw new Error('no-tokens');
+  if (t.access_token && t.expires && t.expires - 60000 > Date.now()) return t.access_token;
+  const body = new URLSearchParams({ grant_type: 'refresh_token', client_id: t.clientId || (location.origin + '/'), refresh_token: t.refresh_token });
+  const r = await fetch('/auth/token', { method: 'POST', body });
+  if (!r.ok) throw new Error('refresh-failed');
+  const j = await r.json();
+  t.access_token = j.access_token; t.expires_in = j.expires_in; t.expires = Date.now() + j.expires_in * 1000;
+  try { localStorage.setItem(TOKENS_KEY, JSON.stringify(t)); } catch {}
+  return t.access_token;
+}
+
+class HA {
+  constructor() { this.id = 1; this.pending = new Map(); this.subs = new Map(); this.onReady = null; this.onState = null; }
+  async connect() {
+    const token = await getAccessToken();
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/websocket');
+      this.ws = ws;
+      ws.onmessage = ev => {
+        const m = JSON.parse(ev.data);
+        if (m.type === 'auth_required') ws.send(JSON.stringify({ type: 'auth', access_token: token }));
+        else if (m.type === 'auth_ok') { this.version = m.ha_version; resolve(); }
+        else if (m.type === 'auth_invalid') { this.dead = true; reject(new Error('auth-invalid')); ws.close(); }
+        else if (m.type === 'result') { const p = this.pending.get(m.id); if (p) { this.pending.delete(m.id); m.success ? p.res(m.result) : p.rej(new Error(m.error && m.error.message)); } }
+        else if (m.type === 'event') { const cb = this.subs.get(m.id); if (cb) cb(m.event); }
+      };
+      ws.onclose = () => { if (this.dead) return; setStatus('Reconnecting…', 'var(--warn)'); setTimeout(() => boot(), 4000); };
+    });
+  }
+  call(msg) { const id = this.id++; return new Promise((res, rej) => { this.pending.set(id, { res, rej }); this.ws.send(JSON.stringify({ ...msg, id })); }); }
+  sub(msg, cb) { const id = this.id++; this.subs.set(id, cb); this.ws.send(JSON.stringify({ ...msg, id })); }
+}
+
+/* ---------- state ---------- */
+const S = { ha: null, prefs: null, ent: {}, states: {}, today: null, week: null, live: [], tab: 'today' };
+
+function setStatus(text, color) { $('#hstatus').textContent = text; $('#hdot').style.background = color; $('#hdot').style.boxShadow = `0 0 0 3px ${color}33`; }
+
+function resolveEntities(prefs) {
+  const e = { solarRate: [], solarE: [], batRate: [], batFrom: [], batTo: [], gridRate: [], gridFrom: [], gridTo: [], price: null, priceNum: null, fixed: 0 };
+  for (const s of prefs.energy_sources) {
+    if (s.type === 'solar') { if (s.stat_rate) e.solarRate.push(s.stat_rate); e.solarE.push(s.stat_energy_from); }
+    if (s.type === 'battery') { if (s.stat_rate) e.batRate.push(s.stat_rate); e.batFrom.push(s.stat_energy_from); e.batTo.push(s.stat_energy_to); }
+    if (s.type === 'grid') {
+      if (s.stat_rate) e.gridRate.push(s.stat_rate);
+      // pre-2025 grid format had flow_from/flow_to arrays
+      if (s.stat_energy_from) e.gridFrom.push(s.stat_energy_from);
+      if (s.stat_energy_to) e.gridTo.push(s.stat_energy_to);
+      (s.flow_from || []).forEach(f => { e.gridFrom.push(f.stat_energy_from); if (f.entity_energy_price) e.price = f.entity_energy_price; if (f.number_energy_price != null) e.priceNum = f.number_energy_price; });
+      (s.flow_to || []).forEach(f => e.gridTo.push(f.stat_energy_to));
+      if (s.entity_energy_price) e.price = s.entity_energy_price;
+      if (s.number_energy_price != null) e.priceNum = s.number_energy_price;
+      if (s.cost_adjustment_day) e.fixed = s.cost_adjustment_day;
+    }
+  }
+  if (CONFIG.fixedDailyCharge != null) e.fixed = CONFIG.fixedDailyCharge;
+  e.soc = CONFIG.socEntity;
+  return e;
+}
+
+const sumState = ids => { let t = 0, any = false; for (const id of ids) { const v = num(S.states[id] && S.states[id].state); if (v != null) { t += v; any = true; } } return any ? t : null; };
+function livePower() {
+  const e = S.ent;
+  const solar = Math.max(0, sumState(e.solarRate) || 0), bat = sumState(e.batRate) || 0, grid = sumState(e.gridRate) || 0;
+  const inv = CONFIG.inverterEntity ? num(S.states[CONFIG.inverterEntity] && S.states[CONFIG.inverterEntity].state) : null;
+  // house load = grid + Hoymiles; solar + battery + grid would count MPPT/wiring losses as house load
+  const home = inv !== null ? Math.max(0, grid + inv) : Math.max(0, solar + bat + grid);
+  const soc = num(S.states[e.soc] && S.states[e.soc].state);
+  const price = e.price ? num(S.states[e.price] && S.states[e.price].state) : e.priceNum;
+  return { solar, bat, grid, home, inv, soc, price, t: Date.now() };
+}
+const isPeak = d => { const h = d.getHours(); return h >= CONFIG.peakHours[0] && h < CONFIG.peakHours[1]; };
+const hr12 = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+
+/* ---------- statistics ---------- */
+function midnight(d = new Date()) { const m = new Date(d); m.setHours(0, 0, 0, 0); return m; }
+async function stats(ids, start, end, period, types) {
+  ids = [...new Set(ids.filter(Boolean))];
+  if (!ids.length) return {};
+  return S.ha.call({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids, period, types, units: { energy: 'kWh', power: 'W' } });
+}
+function bucket(rows, key, startMs, stepMs, n) {
+  const out = new Array(n).fill(null);
+  for (const r of rows || []) { const i = Math.round((toMs(r.start) - startMs) / stepMs); if (i >= 0 && i < n && r[key] != null) out[i] = (out[i] || 0) + r[key]; }
+  return out;
+}
+function sumSeries(res, ids, key, startMs, stepMs, n) {
+  const out = new Array(n).fill(null);
+  for (const id of ids) bucket(res[id], key, startMs, stepMs, n).forEach((v, i) => { if (v != null) out[i] = (out[i] || 0) + v; });
+  return out;
+}
+
+async function loadStats() {
+  const e = S.ent, d0 = midnight(), now = new Date();
+  const d7 = new Date(d0); d7.setDate(d7.getDate() - 6);
+  const end = new Date(d0); end.setDate(end.getDate() + 1);
+  // 5-minute power means for today's chart
+  const rateIds = [...e.solarRate, ...e.batRate, ...e.gridRate, e.soc, CONFIG.inverterEntity];
+  const energyIds = [...e.solarE, ...e.batFrom, ...e.batTo, ...e.gridFrom, ...e.gridTo];
+  const [r5, rh, rp] = await Promise.all([
+    stats(rateIds, d0, end, '5minute', ['mean']),
+    stats(energyIds, d7, end, 'hour', ['change']),
+    e.price ? stats([e.price], d7, end, 'hour', ['mean']) : Promise.resolve({}),
+  ]);
+  const N5 = 288, s5 = d0.getTime(), st5 = 300000;
+  const solar = sumSeries(r5, e.solarRate, 'mean', s5, st5, N5), bat = sumSeries(r5, e.batRate, 'mean', s5, st5, N5),
+        grid = sumSeries(r5, e.gridRate, 'mean', s5, st5, N5), soc = bucket(r5[e.soc], 'mean', s5, st5, N5), invS = bucket(r5[CONFIG.inverterEntity], 'mean', s5, st5, N5);
+  const pts = [];
+  for (let i = 0; i < N5; i++) {
+    if (solar[i] == null && bat[i] == null && grid[i] == null) continue;
+    const so = Math.max(0, solar[i] || 0), b = bat[i] || 0, g = grid[i] || 0;
+    pts.push({ t: s5 + i * st5 + st5 / 2, solar: so, bat: b, grid: g, home: invS[i] != null ? Math.max(0, g + invS[i]) : Math.max(0, so + b + g), soc: soc[i] });
+  }
+  // hourly energy, 7 days
+  const NH = 24 * 7, sh = d7.getTime(), sth = 3600000;
+  const H = {
+    solar: sumSeries(rh, e.solarE, 'change', sh, sth, NH), batOut: sumSeries(rh, e.batFrom, 'change', sh, sth, NH), batIn: sumSeries(rh, e.batTo, 'change', sh, sth, NH),
+    gIn: sumSeries(rh, e.gridFrom, 'change', sh, sth, NH), gOut: sumSeries(rh, e.gridTo, 'change', sh, sth, NH),
+    price: e.price ? bucket(rp[e.price], 'mean', sh, sth, NH) : new Array(NH).fill(e.priceNum),
+  };
+  // hourly stats only compile after the hour ends — rebuild today's hours from 5-minute stats so totals lag ~5 min, not ~1 h
+  const r5e = await stats([...energyIds, e.price], d0, end, '5minute', ['change', 'mean']);
+  const off = 6 * 24, s5h = (ids, key) => { const a = sumSeries(r5e, ids, key, s5, st5, N5), o = new Array(24).fill(null);
+    a.forEach((v, i) => { if (v != null) { const h = Math.floor(i / 12); o[h] = (o[h] || 0) + v; } }); return o; };
+  const T5 = { solar: s5h(e.solarE, 'change'), batOut: s5h(e.batFrom, 'change'), batIn: s5h(e.batTo, 'change'), gIn: s5h(e.gridFrom, 'change'), gOut: s5h(e.gridTo, 'change') };
+  for (const k in T5) T5[k].forEach((v, h) => { if (v != null) H[k][off + h] = v; });
+  if (e.price) { const pm = bucket(r5e[e.price], 'mean', s5, st5, N5); for (let h = 0; h < 24; h++) { const xs = pm.slice(h * 12, h * 12 + 12).filter(v => v != null); if (xs.length) H.price[off + h] = xs.reduce((a, b) => a + b, 0) / xs.length; } }
+  // fill price gaps with last known
+  let last = null; for (let i = 0; i < NH; i++) { if (H.price[i] == null) H.price[i] = last; else last = H.price[i]; }
+  const days = [];
+  for (let d = 0; d < 7; d++) {
+    const t = { solar: 0, batOut: 0, batIn: 0, gIn: 0, gOut: 0, home: 0, self: 0, cost: 0, saved: 0, hours: 0, date: new Date(sh + d * 86400000 + 43200000) };
+    t.date.setHours(0, 0, 0, 0);
+    for (let h = 0; h < 24; h++) {
+      const i = d * 24 + h; const v = k => H[k][i] || 0;
+      if ([H.solar, H.batOut, H.batIn, H.gIn, H.gOut].every(a => a[i] == null)) continue;
+      t.hours++;
+      const home = Math.max(0, v('gIn') - v('gOut') + v('solar') + v('batOut') - v('batIn'));
+      const self = Math.max(0, home - v('gIn')), p = H.price[i] || 0;
+      t.solar += v('solar'); t.batOut += v('batOut'); t.batIn += v('batIn'); t.gIn += v('gIn'); t.gOut += v('gOut');
+      t.home += home; t.self += self; t.cost += v('gIn') * p; t.saved += self * p;
+    }
+    t.fromSolar = Math.max(0, t.solar - t.batIn - t.gOut);
+    days.push(t);
+  }
+  S.today = { pts, d0: s5, totals: days[6] };
+  S.week = days;
+  S.live = S.live.filter(p => p.t > (pts.length ? pts[pts.length - 1].t : 0));
+  render();
+}
+
+/* ---------- rendering ---------- */
+function el(tag, attrs = {}, parent) { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (parent) parent.appendChild(n); return n; }
+function niceMax(v) { if (v <= 0) return 100; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return 10 * p; }
+
+function renderHeader() {
+  const L = livePower(); if (!S.prefs) return;
+  let main = 'Grid is running the house', col = 'var(--grid)';
+  const self = L.home > 0 ? (L.home - Math.max(0, L.grid)) / L.home : 0;
+  if (L.home > 0 && self >= 0.5) { if (L.bat > L.solar) { main = 'Battery is running the house'; col = 'var(--good)'; } else { main = 'Solar is running the house'; col = 'var(--solar-ink)'; } }
+  if (L.grid < -20) { main = 'Exporting to the grid'; col = 'var(--bad)'; }
+  setStatus(main, col);
+  $('#hline').textContent = `Home ${fmtW(L.home)} · Solar ${fmtW(L.solar)} · Battery ${L.soc != null ? Math.round(L.soc) + '%' : '—'} · ${L.price != null ? '$' + L.price.toFixed(3) + '/kWh' : ''}${isPeak(new Date()) ? ' (on-peak)' : ''}`;
+  $('#ratepill').textContent = L.price != null ? '$' + L.price.toFixed(3) : '—';
+}
+
+function renderPower() {
+  const svg = $('#pchart'), box = $('#pbox'), W = Math.max(320, box.clientWidth), Hh = W < 600 ? 220 : 280;
+  const m = { l: 44, r: 10, t: 10, b: 24 }, iw = W - m.l - m.r, ih = Hh - m.t - m.b;
+  svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.innerHTML = '';
+  const pts = S.today ? [...S.today.pts, ...S.live.map(l => ({ ...l }))] : [];
+  const d0 = S.today ? S.today.d0 : midnight().getTime();
+  const x = t => m.l + (t - d0) / 86400000 * iw;
+  let hi = 0, lo = 0; for (const p of pts) { hi = Math.max(hi, p.solar, p.home, p.grid, p.bat); lo = Math.min(lo, p.bat, p.grid); }
+  const step = niceMax(Math.max(hi * 1.05 - Math.min(0, lo * 1.05), 100) / 4);
+  hi = Math.max(step, Math.ceil(hi * 1.05 / step) * step); lo = lo < 0 ? Math.floor(lo * 1.05 / step) * step : 0;
+  const y = v => m.t + (hi - v) / (hi - lo) * ih;
+  // peak band
+  const pk0 = d0 + CONFIG.peakHours[0] * 3600000, pk1 = d0 + CONFIG.peakHours[1] * 3600000;
+  el('rect', { x: x(pk0), y: m.t, width: x(pk1) - x(pk0), height: ih, fill: '#f0b54510', rx: 6 }, svg);
+  el('text', { x: x(pk0) + 6, y: m.t + 13, style: 'fill:#f0b545aa;font-size:10.5px;font-weight:600' }, svg).textContent = 'ON-PEAK';
+  // grid lines
+  const kw = hi >= 2000;
+  for (let v = lo; v <= hi + 1e-6; v += step) { const top = v + step > hi + 1e-6; el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: Math.abs(v) < 1e-6 ? '#3a4255' : '#1e2433', 'stroke-width': 1 }, svg);
+    el('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg).textContent = kw ? +(v / 1000).toFixed(2) + (top ? ' kW' : '') : Math.round(v) + (top ? ' W' : ''); }
+  for (let h = 0; h <= 24; h += W < 480 ? 6 : 3) el('text', { x: x(d0 + h * 3600000), y: Hh - 6, 'text-anchor': 'middle' }, svg).textContent = pad(h) + ':00';
+  if (!pts.length) return;
+  const path = (k, close) => { let d = ''; pts.forEach((p, i) => { d += (i ? 'L' : 'M') + x(p.t).toFixed(1) + ',' + y(p[k]).toFixed(1); }); if (close) d += `L${x(pts[pts.length - 1].t)},${y(0)}L${x(pts[0].t)},${y(0)}Z`; return d; };
+  el('path', { d: path('grid', true), fill: '#8a93a333', stroke: 'none' }, svg);
+  el('path', { d: path('solar', true), fill: '#c4850f55', stroke: 'var(--solar)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  el('path', { d: path('bat'), fill: 'none', stroke: 'var(--battery)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  el('path', { d: path('home'), fill: 'none', stroke: 'var(--home)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  const nx = x(Date.now()); el('line', { x1: nx, x2: nx, y1: m.t, y2: m.t + ih, stroke: '#ffffff55', 'stroke-dasharray': '3 4' }, svg);
+  // hover
+  const cross = el('line', { y1: m.t, y2: m.t + ih, stroke: '#ffffff88', opacity: 0 }, svg);
+  const dots = ['home', 'solar', 'bat'].map(k => el('circle', { r: 4.5, fill: `var(--${k === 'bat' ? 'battery' : k})`, stroke: '#121722', 'stroke-width': 2, opacity: 0 }, svg));
+  const hit = el('rect', { x: m.l, y: 0, width: iw, height: Hh, fill: 'transparent' }, svg);
+  const tip = $('#ptip');
+  const move = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    const t = d0 + (px - m.l) / iw * 86400000; let best = pts[0];
+    for (const p of pts) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+    const cx = x(best.t); cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('opacity', 1);
+    ['home', 'solar', 'bat'].forEach((k, i) => { dots[i].setAttribute('cx', cx); dots[i].setAttribute('cy', y(best[k])); dots[i].setAttribute('opacity', 1); });
+    tip.innerHTML = `<div class="t">${hhmm(new Date(best.t))}</div>
+      <div class="r"><span>Home</span><b>${fmtW(best.home)}</b></div><div class="r"><span>Solar</span><b>${fmtW(best.solar)}</b></div>
+      <div class="r"><span>Battery ${best.bat >= 0 ? 'out' : 'in'}</span><b>${fmtW(Math.abs(best.bat))}</b></div><div class="r"><span>Grid</span><b>${fmtW(best.grid)}</b></div>
+      ${best.soc != null ? `<div class="r"><span>Charge</span><b>${Math.round(best.soc)}%</b></div>` : ''}`;
+    const bx = cx / W * r.width; tip.style.left = (bx > r.width * .6 ? bx - tip.offsetWidth - 14 : bx + 14) + 'px'; tip.style.top = '10px'; tip.style.opacity = 1;
+    S.hoverT = best.t; renderSoc();
+  };
+  const leave = () => { cross.setAttribute('opacity', 0); dots.forEach(d => d.setAttribute('opacity', 0)); tip.style.opacity = 0; S.hoverT = null; renderSoc(); };
+  hit.addEventListener('pointermove', move); hit.addEventListener('pointerdown', move); hit.addEventListener('pointerleave', leave);
+}
+
+function renderSoc() {
+  const svg = $('#schart'), W = Math.max(320, $('#pbox').clientWidth), Hh = 90, m = { l: 44, r: 10, t: 6, b: 20 }, iw = W - m.l - m.r, ih = Hh - m.t - m.b;
+  svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.innerHTML = '';
+  const d0 = S.today ? S.today.d0 : midnight().getTime(), x = t => m.l + (t - d0) / 86400000 * iw, y = v => m.t + (100 - v) / 100 * ih;
+  [0, 50, 100].forEach(v => { el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: '#1e2433' }, svg); el('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg).textContent = v + '%'; });
+  for (let h = 0; h <= 24; h += W < 480 ? 6 : 3) el('text', { x: x(d0 + h * 3600000), y: Hh - 4, 'text-anchor': 'middle' }, svg).textContent = pad(h) + ':00';
+  const pts = (S.today ? [...S.today.pts, ...S.live] : []).filter(p => p.soc != null);
+  if (!pts.length) return;
+  let d = ''; pts.forEach((p, i) => d += (i ? 'L' : 'M') + x(p.t).toFixed(1) + ',' + y(p.soc).toFixed(1));
+  el('path', { d: d + `L${x(pts[pts.length - 1].t)},${y(0)}L${x(pts[0].t)},${y(0)}Z`, fill: '#8b6cf01f' }, svg);
+  el('path', { d, fill: 'none', stroke: 'var(--soc)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  const lp = S.hoverT ? pts.reduce((a, p) => Math.abs(p.t - S.hoverT) < Math.abs(a.t - S.hoverT) ? p : a) : pts[pts.length - 1];
+  el('circle', { cx: x(lp.t), cy: y(lp.soc), r: 4.5, fill: 'var(--soc)', stroke: '#121722', 'stroke-width': 2 }, svg);
+  const tx = el('text', { x: x(lp.t) + (x(lp.t) > W - 60 ? -8 : 8), y: y(lp.soc) - 8, 'text-anchor': x(lp.t) > W - 60 ? 'end' : 'start', style: 'fill:var(--ink);font-weight:700;font-size:12px' }, svg);
+  tx.textContent = Math.round(lp.soc) + '%';
+}
+
+function renderToday() {
+  renderPower(); renderSoc();
+  if (!S.today) return;
+  const T = S.today.totals, pts = S.today.pts;
+  let pk = null; for (const p of pts) if (!pk || p.solar > pk.solar) pk = p;
+  $('#todayhint').textContent = pk && pk.solar > 5 ? `Solar peaked at ${fmtW(pk.solar)} around ${hhmm(new Date(pk.t))} · hover the chart to look back` : 'No solar yet today · hover the chart to look back';
+  // donut
+  const parts = [{ k: 'From the battery', v: T.fromSolar + T.batOut, c: 'var(--battery)' }, { k: 'Bought from the grid', v: T.gIn, c: 'var(--grid)' }];
+  const tot = parts.reduce((a, p) => a + p.v, 0) || 1;
+  const selfPct = Math.round((T.fromSolar + T.batOut) / tot * 100);
+  $('#srchint').textContent = `Of the ${fmtKWh(T.home)} kWh the house used today`;
+  const dn = $('#donut'); dn.innerHTML = '';
+  const R = 50, C = 2 * Math.PI * R; let off = 0;
+  el('circle', { cx: 60, cy: 60, r: R, fill: 'none', stroke: '#1e2433', 'stroke-width': 12 }, dn);
+  parts.forEach(p => { const len = p.v / tot * C; if (len < .5) return;
+    el('circle', { cx: 60, cy: 60, r: R, fill: 'none', stroke: p.c, 'stroke-width': 12, 'stroke-dasharray': `${Math.max(0, len - 2)} ${C}`, 'stroke-dashoffset': -off, transform: 'rotate(-90 60 60)' }, dn); off += len; });
+  el('text', { x: 60, y: 62, 'text-anchor': 'middle', style: 'font-size:24px;font-weight:800' }, dn).textContent = selfPct + '%';
+  el('text', { x: 60, y: 78, 'text-anchor': 'middle', style: 'font-size:10px;fill:var(--ink2)' }, dn).textContent = 'self-powered';
+  $('#srcs').innerHTML = parts.map(p => `<div><i class="sw" style="background:${p.c}"></i><span>${p.k}</span><b>${fmtKWh(p.v)} kWh</b><i>${Math.round(p.v / tot * 100)}%</i></div>`).join('');
+  const L = livePower();
+  $('#tiles').innerHTML = `
+    <div class="tile"><div class="k">Solar made</div><div class="v solar">${fmtKWh(T.solar)}<small>kWh</small></div><div class="d">${T.gOut > 0.005 ? fmtKWh(T.gOut) + ' kWh exported' : 'Nothing exported'}</div></div>
+    <div class="tile"><div class="k">Home used</div><div class="v">${fmtKWh(T.home)}<small>kWh</small></div><div class="d">Now ${fmtW(L.home)}</div></div>
+    <div class="tile"><div class="k">Bought</div><div class="v">${fmtKWh(T.gIn)}<small>kWh</small></div><div class="d">≈ ${fmt$(T.cost)} energy</div></div>
+    <div class="tile"><div class="k">Battery</div><div class="v">${fmtKWh(T.batOut)}<small>kWh out</small></div><div class="d">${fmtKWh(T.batIn)} kWh in · ${L.soc != null ? Math.round(L.soc) + '% now' : ''}</div></div>
+    <div class="tile saved"><div class="k">Saved</div><div class="v">${fmt$(T.saved)}</div><div class="d">vs buying it all from the grid</div></div>
+    <div class="tile"><div class="k">Bill so far</div><div class="v">${fmt$(T.cost + S.ent.fixed)}</div><div class="d">incl. ${fmt$(S.ent.fixed)} daily charge</div></div>`;
+}
+
+function renderWeek() {
+  if (!S.week) return;
+  const svg = $('#wchart'), box = $('#wbox'), W = Math.max(320, box.clientWidth), Hh = 240, m = { l: 44, r: 10, t: 22, b: 26 }, iw = W - m.l - m.r, ih = Hh - m.t - m.b;
+  svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.innerHTML = '';
+  const days = S.week, hi = niceMax(Math.max(...days.map(d => d.home)) * 1.08), y = v => m.t + (hi - v) / hi * ih;
+  for (let i = 0; i <= 4; i++) { const v = hi / 4 * i; el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: i ? '#1e2433' : '#3a4255' }, svg); el('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg).textContent = (+v.toFixed(1)) + (i === 4 ? ' kWh' : ''); }
+  const slot = iw / 7, bw = Math.min(56, slot * 0.56), tip = $('#wtip');
+  days.forEach((d, i) => {
+    const cx = m.l + slot * i + slot / 2, x0 = cx - bw / 2, gridKWh = Math.min(d.gIn, d.home), selfKWh = Math.max(0, d.home - gridKWh);
+    const g = el('g', {}, svg);
+    // self (bottom) then grid on top, 2px surface gap, rounded data end
+    if (selfKWh > 0) el('rect', { x: x0, y: y(selfKWh), width: bw, height: Math.max(0, y(0) - y(selfKWh)), fill: 'var(--battery)', rx: 4 }, g);
+    if (gridKWh > 0) el('rect', { x: x0, y: y(d.home), width: bw, height: Math.max(0, y(selfKWh) - y(d.home) - 2), fill: 'var(--grid)', rx: 4 }, g);
+    const lab = i === 6 ? 'Today' : d.date.toLocaleDateString(undefined, { weekday: 'short' });
+    el('text', { x: cx, y: Hh - 6, 'text-anchor': 'middle', style: i === 6 ? 'fill:var(--ink);font-weight:700' : '' }, svg).textContent = lab;
+    if (d.home > 0) el('text', { x: cx, y: y(d.home) - 6, 'text-anchor': 'middle', style: 'fill:var(--ink2);font-size:11px;font-weight:600' }, svg).textContent = fmtKWh(d.home);
+    const hit = el('rect', { x: m.l + slot * i, y: m.t, width: slot, height: ih, fill: 'transparent' }, svg);
+    hit.addEventListener('pointerenter', () => { g.style.opacity = 1; [...svg.querySelectorAll('g')].forEach(o => { if (o !== g) o.style.opacity = .45; });
+      tip.innerHTML = `<div class="t">${d.date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</div>
+        <div class="r"><span>Home</span><b>${fmtKWh(d.home)} kWh</b></div><div class="r"><span>Battery + solar</span><b>${fmtKWh(selfKWh)} kWh</b></div>
+        <div class="r"><span>Grid</span><b>${fmtKWh(gridKWh)} kWh</b></div><div class="r"><span>Energy cost</span><b>${fmt$(d.cost)}</b></div><div class="r"><span>Saved</span><b>${fmt$(d.saved)}</b></div>`;
+      const r = svg.getBoundingClientRect(), bx = cx / W * r.width; tip.style.left = (bx > r.width * .6 ? bx - tip.offsetWidth - bw : bx + bw / 2 + 8) + 'px'; tip.style.top = '20px'; tip.style.opacity = 1; });
+    hit.addEventListener('pointerleave', () => { tip.style.opacity = 0; svg.querySelectorAll('g').forEach(o => o.style.opacity = 1); });
+  });
+  const sum = k => days.reduce((a, d) => a + d[k], 0);
+  $('#wtable').innerHTML = `<tr><th>Day</th><th class="n">Solar</th><th class="n">Home</th><th class="n">Grid</th><th class="n"><span class="only-wide">Self-powered</span><span class="only-narrow">Self</span></th><th class="n"><span class="only-wide">Energy cost</span><span class="only-narrow">Cost</span></th><th class="n">Saved</th></tr>` +
+    days.map((d, i) => `<tr><td><b>${i === 6 ? 'Today' : `<span class="only-wide">${d.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span><span class="only-narrow">${d.date.toLocaleDateString(undefined, { weekday: 'short' })} ${d.date.getDate()}</span>`}</b></td><td class="n">${fmtKWh(d.solar)}</td><td class="n">${fmtKWh(d.home)}</td><td class="n">${fmtKWh(d.gIn)}</td><td class="n">${d.home ? Math.round(d.self / d.home * 100) : 0}%</td><td class="n">${fmt$(d.cost)}</td><td class="n">${fmt$(d.saved)}</td></tr>`).join('') +
+    `<tr><td><b>7 days</b></td><td class="n"><b>${fmtKWh(sum('solar'))}</b></td><td class="n"><b>${fmtKWh(sum('home'))}</b></td><td class="n"><b>${fmtKWh(sum('gIn'))}</b></td><td class="n"><b>${sum('home') ? Math.round(sum('self') / sum('home') * 100) : 0}%</b></td><td class="n"><b>${fmt$(sum('cost'))}</b></td><td class="n"><b>${fmt$(sum('saved'))}</b></td></tr>`;
+}
+
+function renderNow() {
+  const L = livePower(), svg = $('#flow'); svg.innerHTML = '';
+  const charge = Math.max(0, -L.bat), dis = Math.max(0, L.bat), exp = Math.max(0, -L.grid), imp = Math.max(0, L.grid);
+  // Victron and Hoymiles share the battery terminals. Draw net flows: solar the Hoymiles takes straight off the bus is
+  // Solar -> Home; only net current into / out of the cells shows as Solar -> Battery / Battery -> Home.
+  const inv = L.inv !== null ? Math.max(0, L.inv) : Math.max(0, L.solar + L.bat), ds = S.states[CONFIG.dischargeEntity], bypass = !!ds && ds.state === 'off';
+  const tot = L.solar + dis, b2h = bypass ? 0 : Math.min(inv, Math.max(tot ? inv * dis / tot : 0, inv - L.solar)), s2h = inv - b2h, s2b = charge; // inverter loss split pro rata across its DC inputs
+  const fbox = svg.parentElement, compact = (fbox.clientWidth || window.innerWidth) < 600;
+  svg.classList.toggle('compact', compact);
+  // phones: tighter layout so the circles and numbers render about twice as large
+  const G = compact
+    ? { vb: '0 0 350 364', N: { solar: [76, 78], grid: [274, 78], bat: [76, 272], home: [274, 272] }, r: 58, ring: 65, ly: -10, vy: 19, fs: 14, sy: 356 }
+    : { vb: '0 0 640 400', N: { solar: [120, 80], grid: [520, 80], bat: [120, 300], home: [520, 300] }, r: 52, ring: 60, ly: -8, vy: 18, fs: 13, sy: 384 };
+  svg.setAttribute('viewBox', G.vb);
+  const N = G.N;
+  const link = (a, b, w, color, label) => {
+    const [x1, y1] = N[a], [x2, y2] = N[b], on = w > 3, dg = x1 !== x2 && y1 !== y2;
+    el('path', { d: `M${x1},${y1} L${x2},${y2}`, class: 'flowline', stroke: '#232a3a' }, svg);
+    const p = el('path', { d: `M${x1},${y1} L${x2},${y2}`, class: 'flowline' + (on ? ' on' : ''), stroke: on ? color : 'transparent' }, svg);
+    if (on) p.style.setProperty('--spd', Math.max(0.35, 2.2 - Math.log10(w + 1) * 0.6) + 's');
+    if (on) { const t = el('text', { x: (x1 + x2) / 2 + (x1 === x2 ? 12 : dg && compact ? 10 : 0), y: (y1 + y2) / 2 - (y1 === y2 ? 10 : 0) + (dg ? (compact ? -4 : -8) : 0), 'text-anchor': x1 === x2 || (dg && compact) ? 'start' : 'middle', style: 'font-size:' + G.fs + 'px;font-weight:700;fill:var(--ink2)' }, svg); t.textContent = fmtW(w); }
+  };
+  link('solar', 'bat', s2b, 'var(--solar)'); link('solar', 'home', s2h, 'var(--solar)');
+  link('bat', 'home', b2h, 'var(--battery)'); link('grid', 'home', imp, 'var(--grid)');
+  if (exp > 3) link('home', 'grid', exp, 'var(--bad)');
+  const node = (k, label, val, color, extra) => {
+    const [cx, cy] = N[k], g = el('g', {}, svg);
+    el('circle', { cx, cy, r: G.r, fill: '#121722', stroke: color, 'stroke-width': 3 }, g);
+    if (extra != null) { const C = 2 * Math.PI * G.ring; el('circle', { cx, cy, r: G.ring, fill: 'none', stroke: '#1e2433', 'stroke-width': 6 }, g);
+      el('circle', { cx, cy, r: G.ring, fill: 'none', stroke: 'var(--soc)', 'stroke-width': 6, 'stroke-linecap': 'round', 'stroke-dasharray': `${C * extra / 100} ${C}`, transform: `rotate(-90 ${cx} ${cy})` }, g); }
+    el('text', { x: cx, y: cy + G.ly, 'text-anchor': 'middle', class: 'lbl' }, g).textContent = label;
+    el('text', { x: cx, y: cy + G.vy, 'text-anchor': 'middle', class: 'val' }, g).textContent = val;
+  };
+  node('solar', 'Solar', fmtW(L.solar), 'var(--solar)');
+  node('grid', L.grid < -3 ? 'Exporting' : 'Grid', fmtW(Math.abs(L.grid)), 'var(--grid)');
+  node('bat', L.soc != null ? `Battery ${Math.round(L.soc)}%` : 'Battery', fmtW(Math.abs(L.bat)), 'var(--battery)', L.soc);
+  node('home', 'Home', fmtW(L.home), 'var(--home)');
+  el('text', { x: N.bat[0], y: G.sy, 'text-anchor': 'middle', style: 'font-size:' + (compact ? 13 : 12) + 'px;fill:var(--ink3)' }, svg).textContent = L.bat > 3 ? 'discharging' : L.bat < -3 ? 'charging' : 'idle';
+  // price card
+  const now = new Date(), pk = isPeak(now);
+  $('#nowrate').innerHTML = L.price != null ? `$${L.price.toFixed(3)}<span style="font-size:16px;color:var(--ink2);font-weight:600"> /kWh</span>` : '—';
+  $('#touhint').innerHTML = pk ? `<span class="peak">On-peak until ${hr12(CONFIG.peakHours[1])}</span>` : `Off-peak · on-peak ${hr12(CONFIG.peakHours[0])}–${hr12(CONFIG.peakHours[1])}`;
+  const costHr = L.price != null ? imp / 1000 * L.price : null;
+  $('#nowkv').innerHTML = `<div class="kv"><span>Grid draw costs</span><b>${costHr != null ? '$' + costHr.toFixed(3) + '/h' : '—'}</b></div>
+    <div class="kv"><span>Battery covering</span><b>${L.home ? Math.round(Math.min(1, inv / L.home) * 100) : 0}% of home</b></div>
+    <div class="kv"><span>Today so far</span><b>${S.today ? fmt$(S.today.totals.cost) + ' bought · ' + fmt$(S.today.totals.saved) + ' saved' : '—'}</b></div>`;
+}
+
+function renderSystem() {
+  const e = S.ent, rows = [];
+  const add = (role, id) => { if (!id) return; const s = S.states[id]; const age = s ? (Date.now() - Date.parse(s.last_updated)) / 1000 : null;
+    const ageTxt = age == null ? '—' : age < 90 ? Math.round(age) + ' s ago' : age < 5400 ? Math.round(age / 60) + ' min ago' : Math.round(age / 3600) + ' h ago';
+    const bad = !s || s.state === 'unavailable' || s.state === 'unknown';
+    const stale = e.solarRate.includes(id) || e.batRate.includes(id) || e.gridRate.includes(id) ? age > CONFIG.staleSeconds : false;
+    const sv = s && num(s.state) != null ? num(s.state).toLocaleString(undefined, { maximumFractionDigits: 2 }) : s && s.state;
+    rows.push(`<tr><td>${role}</td><td><b>${esc(s && s.attributes.friendly_name || id)}</b><br><span style="font-size:11px;color:var(--ink3)">${esc(id)}</span></td><td class="n ${bad ? 'stale' : ''}">${s ? esc(sv) + ' ' + esc(s.attributes.unit_of_measurement || '') : 'missing'}</td><td class="n ${stale ? 'stale' : 'fresh'}">${ageTxt}</td></tr>`); };
+  e.solarRate.forEach(i => add('Solar power', i)); e.batRate.forEach(i => add('Battery power', i)); e.gridRate.forEach(i => add('Grid power', i)); add('Battery charge', e.soc); add('Price', e.price);
+  e.solarE.forEach(i => add('Solar energy', i)); e.batFrom.forEach(i => add('Battery out', i)); e.batTo.forEach(i => add('Battery in', i)); e.gridFrom.forEach(i => add('Grid import', i)); e.gridTo.forEach(i => add('Grid export', i));
+  $('#systable').innerHTML = `<tr><th>Role</th><th>Entity</th><th class="n">State</th><th class="n">Updated</th></tr>` + rows.join('');
+}
+
+function render() {
+  renderHeader();
+  if (S.tab === 'today') renderToday(); else if (S.tab === 'week') renderWeek(); else if (S.tab === 'now') renderNow(); else renderSystem();
+  $('#foot').textContent = `Home Assistant ${S.ha && S.ha.version || ''} · stats refreshed ${S.statsAt ? hhmm(S.statsAt) : '—'}`;
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  S.tab = b.dataset.tab; try { localStorage.setItem('energyDash.tab', S.tab); } catch {}
+  document.querySelectorAll('.tabs button').forEach(o => o.setAttribute('aria-selected', o === b));
+  ['now', 'today', 'week', 'system'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== S.tab));
+  render();
+}));
+try { const t = localStorage.getItem('energyDash.tab') || (location.hash || '').slice(1); if (t) { const b = document.querySelector(`.tabs button[data-tab="${t}"]`); if (b) b.click(); } } catch {}
+let rz; new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(render, 120); }).observe(document.body);
+
+/* ---------- boot ---------- */
+function showAuth(reason) {
+  const a = $('#auth'); a.classList.remove('hidden');
+  a.innerHTML = `<h2>Sign-in needed</h2><p>${reason}</p><p>Open <a href="/" style="color:var(--accent)">Home Assistant</a> in this browser with “Keep me logged in” checked, then reload — or paste a long-lived access token (Profile → Security):</p>
+    <input id="llat" placeholder="Long-lived access token" autocomplete="off"><button id="llatbtn">Save on this device</button>`;
+  $('#llatbtn').onclick = () => { try { localStorage.setItem(LLAT_KEY, $('#llat').value.trim()); } catch {} location.reload(); };
+}
+let booting = false, statsTimer;
+async function boot() {
+  if (booting) return; booting = true;
+  try {
+    S.ha = new HA(); await S.ha.connect(); $('#auth').classList.add('hidden');
+    S.prefs = await S.ha.call({ type: 'energy/get_prefs' });
+    S.ent = resolveEntities(S.prefs);
+    const all = await S.ha.call({ type: 'get_states' }); S.states = {}; all.forEach(s => S.states[s.entity_id] = s);
+    const watch = new Set([CONFIG.dischargeEntity, CONFIG.inverterEntity, ...S.ent.solarRate, ...S.ent.batRate, ...S.ent.gridRate, S.ent.soc, S.ent.price, ...S.ent.solarE, ...S.ent.batFrom, ...S.ent.batTo, ...S.ent.gridFrom, ...S.ent.gridTo]);
+    let throttle = 0;
+    S.ha.sub({ type: 'subscribe_events', event_type: 'state_changed' }, ev => {
+      const d = ev.data; if (!watch.has(d.entity_id) || !d.new_state) return;
+      S.states[d.entity_id] = d.new_state;
+      const L = livePower(); const last = S.live[S.live.length - 1];
+      if (!last || L.t - last.t > 30000) S.live.push(L); else Object.assign(last, L);
+      const now = Date.now(); if (now - throttle > 1000) { throttle = now; render(); }
+    });
+    await loadStats(); S.statsAt = new Date(); render();
+    clearInterval(statsTimer);
+    statsTimer = setInterval(async () => { const dayNow = midnight().getTime(); if (S.today && S.today.d0 !== dayNow) S.live = []; await loadStats(); S.statsAt = new Date(); render(); }, CONFIG.statsRefreshMs);
+  } catch (err) {
+    console.error(err);
+    if (/no-tokens|refresh-failed|auth-invalid/.test(err.message)) { try { if (err.message === 'auth-invalid') localStorage.removeItem(LLAT_KEY); } catch {} showAuth(err.message === 'no-tokens' ? 'No Home Assistant session found in this browser.' : 'Your saved session or token was rejected.'); }
+    else { setStatus('Error: ' + err.message, 'var(--bad)'); setTimeout(() => { booting = false; boot(); }, 10000); return; }
+  } finally { booting = false; }
+}
+boot();
+</script>
+</body>
+</html>

@@ -52,4 +52,4 @@ For people who already have their own sensors and helpers. Import [`home-assista
 ## Dashboard
 ![Home Energy dashboard, week view](../images/home-energy-week.jpg)
 
-The Home Energy dashboard is a standalone HTML page served from `config/www/` and added as a Webpage dashboard. Source: [`home-assistant/dashboard/`](../home-assistant/dashboard/) <!-- TODO: add scrubbed energy.html -->
+The Home Energy dashboard is a standalone HTML page served from `config/www/` and added as a Webpage dashboard. Source and install steps: [`home-assistant/dashboard/`](../home-assistant/dashboard/). It reads your Energy dashboard settings, so the only edits are your battery SoC and inverter entities and your peak hours.
