@@ -7,7 +7,7 @@
 - a **short in the switch/resistor wiring** (a stacked lug touching the housing or a mounting screw, or a conductor on the wrong stud), or
 - a **cracked or over-torqued MRBF**. The spec is ≤ 75 in-lb. Over-torquing cracks the blade and causes arcing at the joint.
 
-**Fix:** With everything de-energized, continuity-test B1/B2/COM to battery − and to chassis. Re-verify each stud against the diagram, replace the fuse, torque to spec, and then follow the pre-charge sequence exactly.
+**Fix:** With everything de-energized, continuity-test B1/B2/COM to battery − and to chassis. Re-verify each stud against the diagram, replace the fuse, and torque to spec. Then follow the pre-charge sequence exactly, with the DC breaker **on** before you rotate the switch so the caps actually fill through the resistors. Since adding the second (0.2 Ω) stage and following the procedure, there have been no sparks or breaker trips.
 
 ## DC polarity into the inverter is backwards
 **Cause:** MC4 Y-splitters are made for combining panels. Feeding one battery lead *out* through them to several inverter inputs reverses which gender carries which polarity.

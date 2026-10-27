@@ -23,20 +23,38 @@ Battery + → **fuse at terminal** → pre-charge rotary switch → **30 A 2-pol
   - **Meter every connector that will plug into the inverter before mating it**: + on the inverter's + input, − on −, ~48–58 V. Reversed DC on a microinverter input can destroy it.
 
 ## 4. Pre-charge (inrush)
-The inverter's input capacitors look like a dead short for a few milliseconds. Hard-connecting them to a lithium pack causes a big spark, pitted contacts, and can pop fuses.
+The inverter's input capacitors look like a dead short for a few milliseconds. Hard-connecting them to a lithium pack causes a big spark, pitted contacts, and can pop fuses or trip the BMS's short-circuit protection. This build uses a **two-stage pre-charge** on a 4-position marine rotary switch (OFF / 1 / 1+2 / 2).
 
-**Wiring on a 4-position marine rotary switch (OFF / 1 / 1+2 / 2):**
-- **B1:** one lead of a 25 Ω / 50 W resistor
-- **B2:** battery + (via fuse), stacked with the other resistor lead
-- **COM:** to the 30 A DC breaker → inverter
+**Wiring:**
+| Stud | Connections |
+|---|---|
+| **B2** | Battery + (via the main fuse) · one lead of the **25 Ω / 50 W** resistor · one lead of the **0.2 Ω / 100 W** resistor |
+| **B1** | The other lead of the 25 Ω resistor |
+| **COM** | To the 30 A DC breaker → inverter · the far side of a **momentary push-button** |
+| Momentary push-button | In series with the 0.2 Ω resistor, between that resistor and COM |
+
+Both resistors are wirewound. In position 1, current reaches the inverter only through the 25 Ω resistor. Pressing the button adds a 0.2 Ω path from B2 straight to COM. Position 2 connects B2 to COM directly.
+
+**Why two stages:** after the 25 Ω stage the caps sit close to battery voltage, but not at it. The inverter's own standby draw through 25 Ω leaves a small gap (roughly a volt or two; it depends on the unit). Closing a hard connection across even that gap into low-resistance capacitors can still pull a sharp current spike. The 0.2 Ω stage caps that last step at a few amps and finishes the fill before the direct connection makes.
 
 **Sequence:**
-1. AC unplugged, DC breaker **open**.
-2. Switch OFF → **1** (through the resistor). Hold 3–5 s.
-3. Turn straight to **2**. Don't park at 1+2.
-4. Close the DC breaker, then plug in AC.
+1. AC **unplugged**. DC breaker **on**, because the caps are downstream of the breaker and won't fill if it's off.
+2. Switch OFF → **1**. Hold about **10 s**.
+3. **Press and hold the momentary button.** Rotate through 1+2 to **2**, and hold the button a few more seconds there.
+4. Release the button, then plug in AC.
 
-To shut down, reverse the order: unplug AC, open the breaker, switch OFF. **Never rotate the switch under load.** Its DC rating is marginal for 16S.
+**Shutting down:** unplug AC, turn the DC breaker off, then turn the switch OFF. **Never rotate the switch under load.** Its DC rating is marginal for 16S (~58 V peak).
+
+> ⚠️ **Only press the momentary button after the position-1 hold.** Pressed on empty caps, the 0.2 Ω path is close to a hard connection: about 250 A peak at 51 V. That's exactly the spike the pre-charge exists to prevent.
+
+### Gentler still: energize at sunrise with BMS discharge off
+If the BMS's discharge FET is off, the battery can't source current into the bus. The only thing energizing the inverter is the Victron MPPT, which is current-limited and ramps up with the morning sun. In this build the Victron fills the Hoymiles' input caps gently on its own, with no spark. So the cleanest cold start is:
+
+1. Turn BMS discharge **off** (BMS app, or the ESPHome "BMS Discharge Switch").
+2. Run the pre-charge sequence above anyway. It costs 15 seconds.
+3. Let the morning solar bring the bus up. Once the inverter is awake, turn BMS discharge back **on**. The caps are already at battery voltage, so there's essentially no inrush.
+
+The sunrise method only works when there's solar. At night, on a dark day, or after maintenance, the resistor pre-charge is what protects you. Following either procedure here has meant no sparks and no DC breaker trips.
 
 ## 5. AC connection
 **Verify the receptacle first** (circuit off for wiring, on for measuring):

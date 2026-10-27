@@ -20,7 +20,9 @@ Prices are omitted on purpose because they change weekly. Bold items are the one
 | Part | Qty | Notes |
 |---|---|---|
 | **Fuse at battery positive** | 1 | 30 A MRBF used here. **Class-T recommended for the main position** (interrupt rating). Torque MRBF studs ≤ 75 in-lb. |
-| **Pre-charge: rotary battery switch + 25 Ω / 50 W resistor** | 1 + 1 | See build guide. Switch is rated 48 V DC, which is marginal for 16S (~58 V peak), so **only switch with no load**. A purpose-built pre-charge switch or anti-spark connector is an alternative. |
+| **Pre-charge: 4-position rotary battery switch** | 1 | Rated 48 V DC, which is marginal for 16S (~58 V peak), so **only switch with no load**. |
+| **25 Ω / 50 W wirewound resistor** | 1 | Stage 1 (B1–B2). |
+| **0.2 Ω / 100 W wirewound resistor + momentary push-button** | 1 + 1 | Stage 2 (B2 → button → COM). Use a DC-rated button. See [build guide §4](build-guide.md#4-pre-charge-inrush). |
 | **2-pole DC breaker, 30 A** | 1 | Directly before the inverter. |
 | 10 AWG cable + ring lugs | as needed | Used throughout the DC side. |
 
