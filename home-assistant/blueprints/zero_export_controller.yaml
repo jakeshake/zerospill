@@ -6,10 +6,11 @@ blueprint:
     the target has stayed above the limit for 20 s. It acts only once grid
     readings have settled after its last change, and caps each raise at +400 W.
     Controller only: you supply the target sensor (house load minus a buffer,
-    plus your own battery/time rules) and two helpers. The full system with
+    plus your own battery/time rules) and three helpers. The full system with
     forecasting is in the repo's package.
     https://github.com/jakeshake/zerospill
   domain: automation
+  source_url: https://github.com/jakeshake/zerospill/blob/main/home-assistant/blueprints/zero_export_controller.yaml
   input:
     target_sensor:
       name: Target power sensor (W)
