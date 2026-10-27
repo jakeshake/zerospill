@@ -16,7 +16,7 @@ Order matters. Don't connect the inverter to the battery until sections 1–5 ch
 Battery + → **fuse at terminal** → pre-charge rotary switch → **30 A 2-pole DC breaker** → inverter inputs. 10 AWG throughout. Battery − returns directly.
 
 - At 1,200 W from a ~51 V bus, expect ~25 A DC (more as voltage sags). Confirm fuse, wire, breaker and BMS discharge rating.
-- The battery bus must feed **all** inverter inputs (MC4 Y splits), because each input has a per-input current limit.
+- The battery bus must feed **all four** HM-1200NT inputs through a **1-to-4 MC4 branch** (one for +, one for −). The inverter has 4 DC inputs on 2 MPPT trackers, rated 11.5 A each. ~25 A spread over four inputs is ~6 A each. Over only two inputs it's ~12 A each, above the rating. (The old HM-600 had 2 inputs, so a 1-to-2 was right for it.)
 - **⚠️ MC4 polarity: the Y-splitter trap.** MC4 genders are a polarity *convention*. Panel leads and inverter inputs are gendered so that + can only mate with +. Y-branch connectors are built to **combine panels into one inverter input**. This build runs power the other way: **one battery feed fans out to several inverter inputs**. With power flowing backwards through the splitters, the connector genders end up opposite to what the polarity convention expects. If you crimp the breaker-side leads the "normal" way, the plugs either won't mate or, worse, will deliver **reversed polarity into the inverter.**
   - **Fix used here:** build short **male-to-male and female-to-female MC4 adapter leads** between the DC breaker outputs and the splitters. That way, at the inverter end, + arrives on the inverter's + input and − on its − input.
   - Mark every lead with red/black heat-shrink. Gender alone can't be trusted once adapters are in the chain.

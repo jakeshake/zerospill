@@ -7,7 +7,9 @@ Prices are omitted on purpose because they change weekly. Bold items are the one
 |---|---|---|
 | 200 W panels | 6 | Wired 3S2P. **Check cold-weather Voc × 3 stays under the MPPT's 150 V limit.** |
 | Tilt mounts (VEVOR 45" style) | 3 | Two panels per mount. Rate for your wind; secure against your worst wind direction. |
-| MC4 connectors, 2-to-1 Y branch | as needed | Crimp properly with an MC4 crimper. |
+| MC4 2-to-1 Y branch connectors (PV side) | 1 pair (+/−) | Parallels the two 3-panel strings for 3S2P into the Victron. |
+| **MC4 1-to-4 branch connectors (battery side)** | 1 pair (+/−) | Fans the battery feed out to **all four** HM-1200NT DC inputs. A 1-to-2 isn't enough; see the notes on the inverter row. Mind the gender trap ([build guide §3](build-guide.md#3-dc-protection)). |
+| MC4 connectors + crimper | as needed | Includes the male-to-male / female-to-female adapter leads for the battery side. |
 | PV wire (10 AWG) | as needed | |
 
 ## Charge + storage
@@ -29,7 +31,7 @@ Prices are omitted on purpose because they change weekly. Bold items are the one
 ## Inverter + AC
 | Part | Qty | Notes |
 |---|---|---|
-| **Hoymiles HM-1200NT** (240 V US) | 1 | Fed by the battery bus on all inputs. ~25 A DC at full output. |
+| **Hoymiles HM-1200NT** (240 V US) | 1 | 4 DC inputs on 2 MPPT trackers, **11.5 A max per input**, 60 V max. At full output from a ~51 V bus it draws ~24–25 A DC, about 6 A per input across all four. Feeding only two inputs would push ~12 A each, over the per-input limit. |
 | Hoymiles AC end cable (BC05 female) | 1 | Check your inverter's connector type. |
 | SOOW 12 AWG cord | as needed | |
 | **NEMA 6-20P plug** (or match your receptacle) | 1 | ≥ 20 A / 250 V. |
