@@ -75,6 +75,16 @@ The same dashboard on a phone (Home Assistant companion app): live power flow, t
 
 ![Home Energy dashboard on mobile: Now, Today and Week](images/home-energy-mobile.jpg)
 
+### What the system controls
+This is the author's day-to-day Home Assistant control view on a phone. It's built from standard gauge and entity cards on the package's sensors and helpers. Left to right:
+
+1. **Grid:** battery, inverter, house and solar at a glance; net grid power; push headroom; import, cost and export counters; the export-buffer slider; the live SCE rate; how fresh the last meter reading is.
+2. **Inverter and dispatch:** Hoymiles output, input and efficiency; the full-power and manual overrides; the current dispatch mode and target; the forecast early release and projected surplus; the release and backstop tuning sliders; the limit actually sent to OpenDTU; savings.
+3. **Battery (BMS):** SoC, voltage, current and power; the charge and discharge FET switches; MOSFET and cell temperatures; min/max cell voltage; cycle count.
+4. **Solar (Victron MPPT + Solcast):** yield today, PV voltage, current and power; charge state and errors; today's forecast, peak time and expected power now.
+
+![Home Assistant control dashboard on mobile: grid, inverter/dispatch, battery and solar](images/ha-control-dashboard.jpg)
+
 If ZeroSpill saves you money on your power bill, consider [buying me a coffee](https://buymeacoffee.com/jakeshake).
 
 ## Credits
