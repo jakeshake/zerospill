@@ -4,6 +4,10 @@ A single-file, standalone energy page for Home Assistant. It has four tabs: **No
 
 ![Week view](../../images/home-energy-week.jpg)
 
+It's built for phones too: on narrow screens the power-flow circles get bigger and the tables reflow, with no sideways scrolling, so it works well in the HA companion app.
+
+![Mobile: Now, Today and Week](../../images/home-energy-mobile.jpg)
+
 ## How it works
 - It reads your solar, battery, grid and price entities from **Settings → Dashboards → Energy**, so set those up first. It works with both the current and the pre-2025 grid formats.
 - It connects to HA's WebSocket API from your browser and uses long-term statistics, so the history comes from the recorder. No extra sensors are needed.

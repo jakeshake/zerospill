@@ -71,6 +71,10 @@ Expect summer yield to be higher and winter lower. These are a handful of autumn
 ![Last 7 days: house load by source](images/home-energy-week.jpg)
 ![Today, hour by hour](images/home-energy-today.jpg)
 
+The same dashboard on a phone (Home Assistant companion app): live power flow, today's totals, and the 7-day view. It works on narrow screens with no sideways scrolling.
+
+![Home Energy dashboard on mobile: Now, Today and Week](images/home-energy-mobile.jpg)
+
 If ZeroSpill saves you money on your power bill, consider [buying me a coffee](https://buymeacoffee.com/jakeshake).
 
 ## Credits
